@@ -6,5 +6,5 @@ set(FILES
 )
 
 idf_component_register(SRCS ${FILES}
-        PRIV_REQUIRES src driver spi_flash esp_psram esp_adc fatfs spiffs
+        PRIV_REQUIRES src driver spi_flash esp_psram esp_adc fatfs spiffs can
         INCLUDE_DIRS "../include")
