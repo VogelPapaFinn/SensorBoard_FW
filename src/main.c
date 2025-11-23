@@ -1,22 +1,64 @@
 // Project includes
+#include "ComCenter.h"
+#include "Global.h"
+
+// espidf includes
+#include <esp_mac.h>
+#include <esp_timer.h>
+
 #include "can.h"
+#include "can_messages.h"
 
 void app_main(void)
 {
-  ESP_ERROR_CHECK(initializeCanNode(GPIO_NUM_43, GPIO_NUM_2) == NULL);
+	// Create the event queues
+	createEventQueues();
 
-  ESP_ERROR_CHECK(enableCanNode() == false);
+	// Start the Communication Center
+	startCommunicationCenter();
 
-  uint8_t send_buff[8] = {0, 1, 2, 3, 4, 5, 6, 7};
-  twai_frame_t frame = {
-    .header.id = 0x1,           // Message ID
-    .header.ide = true,         // Use 29-bit extended ID format
-    .buffer = send_buff,        // Pointer to data to transmit
-    .buffer_len = sizeof(send_buff),  // Length of data to transmit
-  };
-  while (1) {
-    printf("Transmitted\n");
-    queueCanBusMessage(&frame, false);
-    vTaskDelay(pdMS_TO_TICKS(2500));
-  }
+	// Add the Register HW UUID Request event to the queue
+	QUEUE_EVENT_T registerHwUUID;
+	registerHwUUID.command = QUEUE_CMD_MAIN_REQUEST_UUID;
+	xQueueSend(mainEventQueue, &registerHwUUID, 0);
+
+	// Wait for new queue events
+	QUEUE_EVENT_T queueEvent;
+	while (1) {
+		// Wait until we get a new event in the queue
+		if (xQueueReceive(mainEventQueue, &queueEvent, portMAX_DELAY)) {
+			switch (queueEvent.command) {
+				// Request the HW UUID of all devices
+				case QUEUE_CMD_MAIN_REQUEST_UUID:
+					// Create the can frame
+					twai_frame_t* frame = malloc(sizeof(twai_frame_t));
+					memset(frame, 0, sizeof(*frame));
+					frame->header.id = CAN_MSG_REQUEST_HW_UUID;
+					frame->header.dlc = 1;
+					frame->header.ide = false;
+					frame->header.rtr = true;
+					frame->header.fdf = false;
+
+					// Send the frame
+					queueCanBusMessage(frame, true, false);
+
+					// Start the timeout timer
+					if (uuidTimerHandle == NULL) {
+						esp_timer_create(&uuidTimerConf, &uuidTimerHandle);
+					}
+					if (!esp_timer_is_active(uuidTimerHandle)) {
+						esp_timer_start_once(uuidTimerHandle, 200 * 1000);
+					}
+
+					// Debug Logging
+					loggerDebug("Send HW UUID Request");
+					break;
+				default:
+					break;
+			}
+		}
+
+		// Wait 100ms
+		vTaskDelay(pdMS_TO_TICKS(100));
+	}
 }
