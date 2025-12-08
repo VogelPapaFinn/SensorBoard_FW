@@ -1,9 +1,12 @@
 // Project includes
 #include "Global.h"
+#include "logger.h"
 
 QueueHandle_t updateEventQueue = NULL;
 
 QueueHandle_t mainEventQueue = NULL;
+
+QueueHandle_t stateMachineEventQueue = NULL;
 
 uint8_t knownHwUUIDs[3] = {0x00, 0x00, 0x00};
 
@@ -24,6 +27,15 @@ bool createEventQueues()
 
 		return false;
 	}
+
+	// Create the main Queue for the State Machine
+	stateMachineEventQueue = xQueueCreate(10, sizeof(QUEUE_EVENT_T));
+	if (stateMachineEventQueue == 0) {
+		loggerCritical("Couldn't create stateMachineEventQueue");
+
+		return false;
+	}
+
 
 	// Logging
 	loggerInfo("Created event queues");
