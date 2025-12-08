@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>MX5-HybridDash</title>
+    <link rel="stylesheet" type="text/css" href="/style.css">
+</head>
+<body>
+<h1>MX5 Dashboard</h1>
+<p>Status: Bereit</p>
+<button onclick="doAction()">Start Engine</button>
+
+<script>
+    function doAction() {
+        fetch('/trigger', {method: 'POST'})
+            .then(r => alert('Befehl gesendet!'));
+    }
+</script>
+</body>
+</html>

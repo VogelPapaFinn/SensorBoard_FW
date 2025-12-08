@@ -4,11 +4,19 @@ set(FILES
         # Start of Application
         "main.c"
 
+        # Webinterface
+        "../include/WebInterface.h"
+        "WebInterface.c"
+        "../include/WebAPI.h"
+        "WebAPI.c"
+
         # Global stuff
         "../include/Global.h"
         "Global.c"
 )
 
 idf_component_register(SRCS ${FILES}
-        PRIV_REQUIRES src driver spi_flash esp_psram esp_adc fatfs spiffs esp_wifi nvs_flash can logger esp_timer statemachine
-        INCLUDE_DIRS "../include")
+        PRIV_REQUIRES src driver spi_flash esp_psram esp_adc fatfs spiffs esp_wifi esp_http_server nvs_flash can logger esp_timer statemachine
+        INCLUDE_DIRS "../include"
+        EMBED_TXTFILES "../webinterface/index.html" "../webinterface/style.css"
+        EMBED_FILES "") # For images

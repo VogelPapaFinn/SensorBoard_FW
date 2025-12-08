@@ -10,10 +10,8 @@
 #include <esp_mac.h>
 #include <esp_netif.h>
 #include <esp_timer.h>
-#include <esp_wifi.h>
-#include <esp_wifi_default.h>
-#include <nvs_flash.h>
 
+#include "WebInterface.h"
 #include "driver/gpio.h"
 #include "esp_adc/adc_oneshot.h"
 
@@ -66,8 +64,6 @@ const esp_timer_create_args_t uuidTimerConf_ = {.callback = &requestUUIDsISR, .n
 uint8_t uuidRequestCounter_;
 
 bool operationModeInitialized_ = false;
-
-wifi_config_t wifiConfig_;
 
 esp_timer_handle_t readSensorDataTimerHandle_;
 const esp_timer_create_args_t readSensorDataTimerConf_ = {.callback = &readSensorDataISR,
@@ -317,39 +313,9 @@ void app_main(void)
 						bool initSucceeded = true;
 
 						/*
-						 * Start the Wi-Fi
+						 * Start the Webinterface
 						 */
-						// Initialize NVS
-						initSucceeded &= nvs_flash_init() == ESP_OK;
-
-						// Initialize TCP/IP
-						initSucceeded &= esp_netif_init() == ESP_OK;
-						initSucceeded &= esp_event_loop_create_default() == ESP_OK;
-
-						// Initialize the AP mode
-						esp_netif_create_default_wifi_ap();
-
-						// Load the default config
-						wifi_init_config_t initConfig = WIFI_INIT_CONFIG_DEFAULT();
-						initSucceeded &= esp_wifi_init(&initConfig);
-
-						// Register the Wi-Fi callbacks
-
-						// Initialize the Wi-Fi config
-						wifi_config_t wifiConfig = {.ap = {
-														.ssid = "MX5-HybridDash Control Board",
-														.ssid_len = strlen("MX5-HybridDash Control Board"),
-														.channel = 1,
-														.password = "unsafe",
-														.max_connection = 4,
-														.authmode = WIFI_AUTH_WPA2_PSK,
-													}};
-						wifiConfig_ = wifiConfig;
-
-						// Start up the Wi-Fi
-						initSucceeded &= esp_wifi_set_mode(WIFI_MODE_AP) == ESP_OK;
-						initSucceeded &= esp_wifi_set_config(WIFI_IF_AP, &wifiConfig_) == ESP_OK;
-						initSucceeded &= esp_wifi_start() == ESP_OK;
+						initSucceeded &= startWebInterface();
 
 						/*
 						 *	Start reading the sensor data to the displays
@@ -459,7 +425,7 @@ void sendUUIDRequest(void)
 	queueCanBusMessage(frame, true, false);
 
 	// Debug Logging
-	loggerDebug("Sent HW UUID Request");
+	// loggerDebug("Sent HW UUID Request");
 }
 
 bool initializeAdcChannels(void)
