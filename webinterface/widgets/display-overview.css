@@ -1,0 +1,8 @@
+.display-box {
+    text-align: center;
+    background-color: var(--pico-card-background-color);
+    color: var(--pico-primary-inverse);
+
+    padding: 1rem;
+    border-radius: 1rem;
+}

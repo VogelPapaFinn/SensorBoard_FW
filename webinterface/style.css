@@ -1,15 +1,20 @@
-body {
-    background-color: #333;
-    color: white;
-    font-family: Arial, sans-serif;
-    text-align: center;
+
+/*
+ *  Styling by class
+ */
+.text-left {
+    text-align: left;
+}
+.text-right {
+    text-align: right;
+}
+.small-spacer {
+    margin: 2rem;
 }
 
-button {
-    background-color: #e74c3c; /* MX5 Rot */
-    color: white;
-    padding: 15px 32px;
-    border: none;
-    font-size: 16px;
-    cursor: pointer;
+/*
+ *  Styling by ID
+ */
+#body-content {
+    margin: 1rem;
 }

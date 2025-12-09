@@ -1,0 +1,11 @@
+nav {
+    background-color: var(--pico-primary-background);
+    color: var(--pico-primary-inverse);
+    padding-left: 1rem;
+    padding-right: 1rem;
+    margin-bottom: 1rem;
+}
+
+nav a {
+    color: var(--pico-primary-inverse);
+}
