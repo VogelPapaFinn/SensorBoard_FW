@@ -2,15 +2,20 @@
 #include "WebInterface.h"
 
 // espidf includes
+#include <esp_http_server.h>
 #include <esp_wifi.h>
 #include <esp_wifi_default.h>
 #include <nvs_flash.h>
+
+#include "esp_private/mmu_psram_flash.h"
 
 /*
  *	Defines
  */
 #define WIFI_SSID "MX5-HybridDash Control Board"
 #define WIFI_PASSWORD "MX5-HybridDashV2"
+
+#define FILE_UPLOAD_BUFFER_SIZE_B 1024
 
 /*
  *	HTML, CSS & JS files
@@ -45,7 +50,7 @@ static esp_err_t style_get_handler(httpd_req_t* req)
 }
 
 /*
- *	Button Handlers
+ *	Other Handlers
  */
 static esp_err_t button_post_handler(httpd_req_t* req)
 {
@@ -56,6 +61,50 @@ static esp_err_t button_post_handler(httpd_req_t* req)
 	// Wir senden einfach "OK" zurück
 	httpd_resp_send(req, "OK", HTTPD_RESP_USE_STRLEN);
 
+	return ESP_OK;
+}
+
+static esp_err_t upload_post_handler(httpd_req_t* req)
+{
+	char buf[FILE_UPLOAD_BUFFER_SIZE_B];
+	int ret, remaining = req->content_len;
+
+	// esp_rom_printf("Empfange Upload. Gesamtgröße: %d Bytes", remaining);
+
+	// Schleife, solange noch Daten ausstehen
+	while (remaining > 0) {
+		/* * Daten empfangen
+		 * Wir versuchen, entweder den Rest der Datei ODER maximal die Buffergröße zu lesen.
+		 */
+		if ((ret = httpd_req_recv(req, buf, MIN(remaining, FILE_UPLOAD_BUFFER_SIZE_B))) <= 0) {
+			if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+				// Timeout: Wir können es nochmal versuchen (continue)
+				continue;
+			}
+			// Schwerwiegender Fehler (Verbindung abgebrochen etc.)
+			return ESP_FAIL;
+		}
+
+		/* * -----------------------------------------------------------
+		 * HIER PASSIERT IHRE VERARBEITUNG
+		 * -----------------------------------------------------------
+		 * 'buf' enthält jetzt 'ret' Bytes an Daten.
+		 * * Beispiele:
+		 * - Schreiben in eine Datei (fwrite auf SPIFFS/SD-Card)
+		 * - Parsen von JSON/Config
+		 * - OTA Update (esp_ota_write)
+		 */
+
+		// Beispiel: Einfach nur Loggen der ersten paar Bytes
+		// process_data(buf, ret);
+		// esp_rom_printf("Verarbeite Chunk von %d Bytes...", ret);
+
+		// Zähler aktualisieren
+		remaining -= ret;
+	}
+
+	// Antwort an den Browser senden, dass alles geklappt hat
+	httpd_resp_sendstr(req, "Datei erfolgreich hochgeladen");
 	return ESP_OK;
 }
 
@@ -73,6 +122,9 @@ static const httpd_uri_t button_uri = {.uri = "/trigger", // Die URL, die der Bu
 									   .method = HTTP_POST, // POST ist besser für Aktionen als GET
 									   .handler = button_post_handler,
 									   .user_ctx = NULL};
+
+static const httpd_uri_t upload_uri = {
+	.uri = "/upload", .method = HTTP_POST, .handler = upload_post_handler, .user_ctx = NULL};
 
 
 /*
@@ -130,6 +182,7 @@ bool startWebInterface(void)
 	success &= httpd_register_uri_handler(httpdHandle_, &root_uri);
 	success &= httpd_register_uri_handler(httpdHandle_, &style_uri);
 	success &= httpd_register_uri_handler(httpdHandle_, &button_uri);
+	success &= httpd_register_uri_handler(httpdHandle_, &upload_uri);
 
 	return success;
 }

@@ -10,11 +10,68 @@
 <p>Status: Bereit</p>
 <button onclick="doAction()">Start Engine</button>
 
+<div class="container">
+    <h2>Firmware / Datei Upload</h2>
+    
+    <input type="file" id="fileInput">
+    <br><br>
+    <button onclick="uploadFile()">Hochladen</button>
+    
+    <br><br>
+    <label>Fortschritt:</label>
+    <progress id="progressBar" value="0" max="100"></progress>
+    <div id="status">0%</div>
+</div>
+
 <script>
     function doAction() {
         fetch('/trigger', {method: 'POST'})
-            .then(r => alert('Befehl gesendet!'));
     }
 </script>
+
+<script>
+        function uploadFile() {
+        var fileInput = document.getElementById('fileInput');
+        var file = fileInput.files[0];
+        
+        if (!file) {
+            alert("Bitte erst eine Datei auswählen!");
+            return;
+        }
+
+        var xhr = new XMLHttpRequest();
+        
+        // 1. Der Event-Listener für den Fortschritt
+        xhr.upload.onprogress = function(e) {
+            if (e.lengthComputable) {
+                // Berechnung der Prozentzahl
+                var percentComplete = (e.loaded / e.total) * 100;
+                
+                // UI aktualisieren
+                document.getElementById('progressBar').value = percentComplete;
+                document.getElementById('status').innerText = Math.round(percentComplete) + "%";
+            }
+        };
+
+        // 2. Event-Listener wenn der Upload fertig ist (Antwort vom ESP32 erhalten)
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                document.getElementById('status').innerText = "Fertig! Server sagt: " + xhr.responseText;
+                document.getElementById('progressBar').value = 100;
+            } else {
+                document.getElementById('status').innerText = "Fehler: " + xhr.status;
+            }
+        };
+
+        // 3. Fehlerbehandlung (z.B. Netzwerkabbruch)
+        xhr.onerror = function() {
+            document.getElementById('status').innerText = "Netzwerkfehler beim Upload.";
+        };
+
+        // Verbindung öffnen und Datei senden
+        xhr.open('POST', '/upload', true);
+        xhr.send(file);
+    }
+    </script>
 </body>
 </html>
