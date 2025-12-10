@@ -17,6 +17,8 @@ set(FILES
 
 idf_component_register(SRCS ${FILES}
         PRIV_REQUIRES src driver spi_flash esp_psram esp_adc fatfs spiffs esp_wifi esp_http_server nvs_flash can logger esp_timer statemachine
-        INCLUDE_DIRS "../include"
-        EMBED_TXTFILES "../webinterface/index.html" "../webinterface/style.css"
+        INCLUDE_DIRS "../include" "."
+        EMBED_TXTFILES "" # For Files
         EMBED_FILES "") # For images
+
+spiffs_create_partition_image(spiffs "../webinterface" FLASH_INTO_PROJECT)

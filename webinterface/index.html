@@ -10,31 +10,31 @@
     <meta name="description" content="A pure HTML example, without dependencies.">
 
     <!-- Pico.css -->
-    <link rel="stylesheet" href="pico-css/pico-main/css/pico.min.css">
+    <link rel="stylesheet" href="pico.min.css">
     <link rel="stylesheet" href="widgets/navbar.css">
     <link rel="stylesheet" href="widgets/display-overview.css">
     <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
-    <!-- Load the navigation bar -->
-    <div id="navbar"></div>
-    <script src="widgets/navbar.js"></script>
-    
-    <div id="body-content">
-        <h2>Connected Displays</h2>
+<!-- Load the navigation bar -->
+<div id="navbar"></div>
+<script src="widgets/navbar.js"></script>
 
+<div id="body-content">
+    <h2>Connected Displays</h2>
+
+    <div class="grid">
         <div class="grid">
-            <div class="grid">
-                <!-- Load display 1 -->
-                <div class="display-overview"></div>
-                <script src="widgets/display-overview.js"></script>
-                
-                <!-- Load display 2 -->
-                <div class="display-overview"></div>
-                <script src="widgets/display-overview.js"></script>
-            </div>
+            <!-- Load display 1 -->
+            <div class="display-overview"></div>
+            <script src="widgets/display-overview.js"></script>
+
+            <!-- Load display 2 -->
+            <div class="display-overview"></div>
+            <script src="widgets/display-overview.js"></script>
         </div>
     </div>
+</div>
 </body>
 </html>

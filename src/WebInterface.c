@@ -6,8 +6,10 @@
 #include <esp_wifi.h>
 #include <esp_wifi_default.h>
 #include <nvs_flash.h>
+#include <sys/dirent.h>
 
 #include "esp_private/mmu_psram_flash.h"
+#include "esp_spiffs.h"
 
 /*
  *	Defines
@@ -31,21 +33,84 @@ extern const uint8_t style_css_end[] asm("_binary_style_css_end");
 /*
  *	File Handler
  */
-// index.html Handler
-static esp_err_t root_get_handler(httpd_req_t* req)
+static const char* getMimeType(const char* filepath)
 {
-	httpd_resp_set_type(req, "text/html");
-	// Wir senden die Daten zwischen start und end
-	// (end - start) ergibt die Länge der Datei
-	httpd_resp_send(req, (const char*)index_html_start, index_html_end - index_html_start);
-	return ESP_OK;
+	const char* lastDot = strrchr(filepath, '.');
+	if (!lastDot)
+		return "text/plain";
+	if (strcmp(lastDot, ".html") == 0)
+		return "text/html";
+	if (strcmp(lastDot, ".css") == 0)
+		return "text/css";
+	if (strcmp(lastDot, ".js") == 0)
+		return "application/javascript";
+	if (strcmp(lastDot, ".png") == 0)
+		return "image/png";
+	if (strcmp(lastDot, ".jpg") == 0)
+		return "image/jpeg";
+	if (strcmp(lastDot, ".ico") == 0)
+		return "image/x-icon";
+	return "text/plain";
 }
-
-// style.css Handler
-static esp_err_t style_get_handler(httpd_req_t* req)
+static esp_err_t fileHandler(httpd_req_t* req)
 {
-	httpd_resp_set_type(req, "text/css");
-	httpd_resp_send(req, (const char*)style_css_start, style_css_end - style_css_start);
+	// Array which holds the file path of the file we return
+	char filepath[600];
+
+	// Check if it is the index.html file
+	if (strcmp(req->uri, "/") == 0) {
+		strcpy(filepath, "/spiffs/index.html");
+	}
+	else {
+		// Otherwise build the absolute path to the requested file
+		snprintf(filepath, sizeof(filepath), "/spiffs%s", req->uri);
+	}
+
+	// Then open the file as read only
+	FILE* reqFile = fopen(filepath, "r");
+	if (reqFile == NULL) {
+		// Error handling
+		esp_rom_printf("Couldn't open file: %s\n", filepath);
+		return ESP_FAIL;
+	}
+
+	// Set the MIME Type
+	httpd_resp_set_type(req, getMimeType(filepath));
+
+	// Send the file in 4KB chunks
+	char* chunk = malloc(4096);
+	if (!chunk) {
+		// Close the file
+		fclose(reqFile);
+		return ESP_ERR_NO_MEM;
+	}
+
+	// Read all chunks and send them to the requestor
+	size_t chunksize;
+	do {
+		// Read 4KB of data from the requested file
+		chunksize = fread(chunk, 1, 4096, reqFile);
+
+		// Send if the chunk is not emptz
+		if (chunksize > 0) {
+			// Send the chunk to the requestor
+			if (httpd_resp_send_chunk(req, chunk, chunksize) != ESP_OK) {
+				// Something went wrong
+				fclose(reqFile);
+				free(chunk);
+				return ESP_FAIL;
+			}
+		}
+	}
+	while (chunksize != 0); // Do until the chunksize is 0 -> file was completely read
+
+	// Cleanup
+	fclose(reqFile);
+	free(chunk);
+
+	// Send one last emptz chunk to signalize the end of the transmission
+	httpd_resp_send_chunk(req, NULL, 0);
+
 	return ESP_OK;
 }
 
@@ -73,7 +138,8 @@ static esp_err_t upload_post_handler(httpd_req_t* req)
 
 	// Schleife, solange noch Daten ausstehen
 	while (remaining > 0) {
-		/* * Daten empfangen
+		/*
+		 * Daten empfangen
 		 * Wir versuchen, entweder den Rest der Datei ODER maximal die Buffergröße zu lesen.
 		 */
 		if ((ret = httpd_req_recv(req, buf, MIN(remaining, FILE_UPLOAD_BUFFER_SIZE_B))) <= 0) {
@@ -111,12 +177,7 @@ static esp_err_t upload_post_handler(httpd_req_t* req)
 /*
  *	URIs
  */
-// URI index.html
-static const httpd_uri_t root_uri = {.uri = "/", .method = HTTP_GET, .handler = root_get_handler, .user_ctx = NULL};
-
-// URI style.css
-static const httpd_uri_t style_uri = {
-	.uri = "/style.css", .method = HTTP_GET, .handler = style_get_handler, .user_ctx = NULL};
+static const httpd_uri_t fileHandlerURI = {.uri = "/*", .method = HTTP_GET, .handler = fileHandler, .user_ctx = NULL};
 
 static const httpd_uri_t button_uri = {.uri = "/trigger", // Die URL, die der Button aufruft
 									   .method = HTTP_POST, // POST ist besser für Aktionen als GET
@@ -169,18 +230,27 @@ bool startWebInterface(void)
 	success &= esp_wifi_set_config(WIFI_IF_AP, &wifiConfig_) == ESP_OK;
 	success &= esp_wifi_start() == ESP_OK;
 
+	/*
+	 *	Mount the data partition where the webinterface is
+	 */
+	// Create the partition config for mounting
+	const esp_vfs_spiffs_conf_t partitionConfig = {
+		.base_path = "/spiffs", .partition_label = NULL, .max_files = 5, .format_if_mount_failed = false};
+
+	// Mount the partition
+	success &= esp_vfs_spiffs_register(&partitionConfig) == ESP_OK;
 
 	/*
 	 *	Start the Webserver
 	 */
-	const httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+	httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+	config.uri_match_fn = httpd_uri_match_wildcard;
 
 	// Start the server
 	success &= httpd_start(&httpdHandle_, &config) == ESP_OK;
 
 	// Register the URIs
-	success &= httpd_register_uri_handler(httpdHandle_, &root_uri);
-	success &= httpd_register_uri_handler(httpdHandle_, &style_uri);
+	success &= httpd_register_uri_handler(httpdHandle_, &fileHandlerURI);
 	success &= httpd_register_uri_handler(httpdHandle_, &button_uri);
 	success &= httpd_register_uri_handler(httpdHandle_, &upload_uri);
 
