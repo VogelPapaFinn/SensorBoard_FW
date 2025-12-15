@@ -1,5 +1,4 @@
 <!DOCTYPE html>
-<html>
 
 <html lang="en">
 <head>
@@ -24,6 +23,9 @@
 <div id="body-content">
     <h2>Connected Displays</h2>
 
+    <label id="tet">tet</label>
+    <label id="tet2">tet</label>
+
     <div class="grid">
         <div class="grid">
             <!-- Load display 1 -->
@@ -36,5 +38,27 @@
         </div>
     </div>
 </div>
+
+<script>
+    var gateway = `ws://${window.location.hostname}/ws`;
+    var websocket;
+
+    function initWebSocket() {
+        websocket = new WebSocket(gateway);
+        websocket.onmessage = onMessage;
+    }
+
+    function onMessage(event) {
+        console.log("Server Push: " + event.data);
+        var data = JSON.parse(event.data);
+
+        // Test
+        document.getElementById('tet').innerHTML = data.test
+        document.getElementById('tet2').innerHTML = data.test2
+    }
+
+    window.addEventListener('load', initWebSocket);
+</script>
+
 </body>
 </html>

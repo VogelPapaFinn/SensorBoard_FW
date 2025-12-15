@@ -3,4 +3,3 @@
 /*
  *	Functions
  */
-void test();

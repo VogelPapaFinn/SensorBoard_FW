@@ -21,4 +21,4 @@ idf_component_register(SRCS ${FILES}
         EMBED_TXTFILES "" # For Files
         EMBED_FILES "") # For images
 
-spiffs_create_partition_image(spiffs "../webinterface" FLASH_INTO_PROJECT)
+spiffs_create_partition_image(spiffs "../res/" FLASH_INTO_PROJECT)

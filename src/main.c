@@ -10,6 +10,8 @@
 #include <esp_mac.h>
 #include <esp_netif.h>
 #include <esp_timer.h>
+#include <sys/dirent.h>
+#include <sys/stat.h>
 
 #include "WebInterface.h"
 #include "driver/gpio.h"
@@ -55,6 +57,8 @@ bool initializeAdcChannels(void);
 
 void IRAM_ATTR speedISR();
 void IRAM_ATTR rpmISR();
+
+void debugListAllSpiffsFiles();
 
 /*
  *	Private Variables
@@ -315,10 +319,10 @@ void app_main(void)
 						/*
 						 * Start the Webinterface
 						 */
-						initSucceeded &= startWebInterface();
+						initSucceeded &= startWebInterface(GET_FROM_CONFIG);
 
 						/*
-						 *	Start reading the sensor data to the displays
+						 *	Start reading the sensor data
 						 */
 						if (readSensorDataTimerHandle_ == NULL) {
 							initSucceeded &= esp_timer_create(&readSensorDataTimerConf_, &readSensorDataTimerHandle_);
@@ -346,6 +350,9 @@ void app_main(void)
 
 						// Finished the initialization
 						operationModeInitialized_ = initSucceeded;
+
+						// List all files on the spiffs partition
+						// debugListAllSpiffsFiles();
 					}
 
 					break;
@@ -634,4 +641,43 @@ bool initializeAdcChannels(void)
 	/* --- Configure the internal temperature sensor --- */
 
 	return true;
+}
+
+void debugListAllSpiffsFiles()
+{
+	DIR* dir = opendir("/spiffs"); // Muss mit base_path übereinstimmen
+	if (dir == NULL) {
+		loggerDebug("Fehler beim Öffnen des Verzeichnisses");
+		return;
+	}
+
+	struct dirent* entry;
+	while ((entry = readdir(dir)) != NULL) {
+		// d_name ist der Dateiname
+		loggerDebug("Gefundene Datei: %s", entry->d_name);
+
+		// Vollen Pfad zusammenbauen
+		char path[264];
+		snprintf(path, sizeof(path), "/spiffs/%s", entry->d_name);
+
+		// 3. Dateiinhalt lesen und ausgeben
+		FILE* f = fopen(path, "r");
+		if (f == NULL) {
+			loggerDebug("Konnte Datei nicht öffnen");
+			continue;
+		}
+
+		loggerDebug("%s", entry->d_name);
+		// loggerDebug("--- Inhalt von %s ---", entry->d_name);
+		// char line[128];
+		// while (fgets(line, sizeof(line), f) != NULL) {
+		// 	// Zeile ausgeben (ohne extra Newline, da fgets es behält)
+		// 	printf("%s", line);
+		// }
+		// printf("\n"); // Abschluss-Newline für saubere Log-Ausgabe
+		// loggerDebug("--- Ende von %s ---", entry->d_name);
+
+		fclose(f);
+	}
+	closedir(dir);
 }
