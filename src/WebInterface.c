@@ -16,11 +16,12 @@
  *	Defines
  */
 #define FILE_UPLOAD_BUFFER_SIZE_B 1024
+#define MAX_HTTP_CONNECTIONS 255
 
 /*
  *	Prototypes
  */
-void websocketSendAsyncData();
+void webinterfaceSendData();
 
 static void wifiEventHandler(void* arg, esp_event_base_t eventBase, int32_t eventID, void* eventData);
 
@@ -46,22 +47,24 @@ static const char* getMimeType(const char* filepath)
 		return "image/x-icon";
 	return "text/plain";
 }
-static esp_err_t fileHandler(httpd_req_t* req)
+static esp_err_t webinterfaceHandler(httpd_req_t* req)
 {
 	// Array which holds the file path of the file we return
 	char filepath[600];
 
 	// Check if it is the index.html file
-	if (strcmp(req->uri, "/") == 0) {
-		strcpy(filepath, "/spiffs/webinterface/index.html");
-		websocketSendAsyncData();
+	if (strcmp(req->uri, "") == 0) {
+		return ESP_ERR_INVALID_ARG;
 	}
 	else if (strcmp(req->uri, "/ws") == 0) {
 		return ESP_OK;
 	}
+	else if (strcmp(req->uri, "/") == 0) {
+		strcpy(filepath, "/resources/webinterface/index.html");
+	}
 	else {
 		// Otherwise build the absolute path to the requested file
-		snprintf(filepath, sizeof(filepath), "/spiffs/webinterface%s", req->uri);
+		snprintf(filepath, sizeof(filepath), "/resources/webinterface%s", req->uri);
 	}
 
 	// Then open the file as read only
@@ -120,8 +123,8 @@ static esp_err_t fileHandler(httpd_req_t* req)
 /*
  *	URIs
  */
-static const httpd_uri_t fileHandlerURI = {
-	.uri = "/*", .method = HTTP_GET, .handler = fileHandler, .user_ctx = NULL, .is_websocket = true};
+static const httpd_uri_t webinterfaceHandlerURI = {
+	.uri = "/*", .method = HTTP_GET, .handler = webinterfaceHandler, .user_ctx = NULL, .is_websocket = true};
 
 /*
  *	Private Variables
@@ -137,84 +140,44 @@ char* hostApPassword_ = NULL;
 /*
  *	Function implementations
  */
-// Diese Funktion läuft im Webserver-Thread (sicher)
-struct WsMessage
+
+void webinterfaceBroadcastWorker(void* arg)
 {
-	char* payload;
-};
+	// Cast the arg to a message
+	char* message = arg;
 
-void ws_broadcast_worker(void* arg)
-{
-	httpd_handle_t hd =
-		(httpd_handle_t)arg; // Wir brauchen das Handle, hier nutzen wir globalen Context oder übergeben es anders
-	// HINWEIS: Wenn 'server' global ist, nutze einfach die globale Variable 'server' statt 'hd' cast.
-	// Unten im Beispiel gehe ich davon aus, dass 'httpdHandle_' global verfügbar ist.
+	// Get all open connections
+	size_t amountOfOpenConnections = MAX_HTTP_CONNECTIONS;
+	int connectionFDS[MAX_HTTP_CONNECTIONS];
 
-	struct WsMessage* msg = (struct WsMessage*)arg;
-
-	// 1. Clients abrufen
-	size_t fds = 4;
-	int client_fds[4];
-	// Fehlerbehandlung: Sicherstellen, dass httpdHandle_ existiert
-	if (httpd_get_client_list(httpdHandle_, &fds, client_fds) == ESP_OK) {
-
-		// 2. Paket schnüren
+	// Pull all FDS
+	if (httpd_get_client_list(httpdHandle_, &amountOfOpenConnections, connectionFDS) == ESP_OK) {
+		// Create the packet
 		httpd_ws_frame_t packet;
-		packet.payload = (uint8_t*)msg->payload;
-		packet.len = strlen(msg->payload);
+		packet.payload = (uint8_t*)message;
+		packet.len = strlen(message);
 		packet.type = HTTPD_WS_TYPE_TEXT;
 
-		// 3. An alle Clients senden
-		for (int i = 0; i < fds; i++) {
-			// Hier nutzen wir die SYNC Version, da wir schon im Worker-Thread sind!
-			// Das ist sicherer und wir können den Speicher danach sofort freigeben.
-			if (client_fds[i] == 0)
-				continue;
-			esp_rom_printf("Sending message\n");
-			httpd_ws_send_frame_async(httpdHandle_, client_fds[i], &packet);
+		// Send it to all open connections
+		for (int i = 0; i < amountOfOpenConnections; i++) {
+			httpd_ws_send_frame_async(httpdHandle_, connectionFDS[i], &packet);
 		}
 	}
 
-	// 4. Speicher aufräumen (WICHTIG!)
-	free(msg->payload); // Den JSON String löschen
-	free(msg); // Die Message Struktur löschen
+	// Finally free the message memory
+	free(message);
 }
 
-// Diese Funktion rufst du aus deinem Loop auf
-void websocketSendAsyncData()
+void webinterfaceSendData(const char* data)
 {
+	// First check if our web handle is valid
 	if (httpdHandle_ == NULL)
 		return;
 
-	// 1. JSON erstellen
-	cJSON* json = cJSON_CreateObject();
-	cJSON_AddNumberToObject(json, "test", 123);
-	cJSON_AddNumberToObject(json, "test2", 456);
-
-	// 2. String drucken (reserviert RAM!)
-	char* jsonStr = cJSON_PrintUnformatted(json);
-
-	// cJSON Objekt können wir jetzt schon löschen, der String existiert ja separat
-	cJSON_Delete(json);
-
-	if (jsonStr == NULL)
-		return; // Kein Speicher mehr?
-
-	// 3. Message für den Worker vorbereiten
-	struct WsMessage* msg = (struct WsMessage*)malloc(sizeof(struct WsMessage));
-	if (msg) {
-		msg->payload = jsonStr; // Pointer übergeben (Worker gibt ihn frei)
-
-		// 4. In die Queue schieben
-		// Wir übergeben 'msg' als Argument an den Worker
-		if (httpd_queue_work(httpdHandle_, ws_broadcast_worker, msg) != ESP_OK) {
-			// Falls Queue voll ist: Selbst aufräumen, sonst Leak!
-			free(jsonStr);
-			free(msg);
-		}
-	}
-	else {
-		free(jsonStr);
+	// Send the message
+	if (httpd_queue_work(httpdHandle_, webinterfaceBroadcastWorker, (char*)data) != ESP_OK) {
+		// Queuing failed, free the memory
+		free((char*)data);
 	}
 }
 
@@ -248,7 +211,7 @@ bool startWebInterface(WIFI_TYPE wifiType)
 	 */
 	// Create the partition config for mounting
 	const esp_vfs_spiffs_conf_t partitionConfig = {
-		.base_path = "/spiffs", .partition_label = NULL, .max_files = 5, .format_if_mount_failed = false};
+		.base_path = "/resources", .partition_label = "resources", .max_files = 5, .format_if_mount_failed = false};
 
 	// Mount the partition
 	success &= esp_vfs_spiffs_register(&partitionConfig) == ESP_OK;
@@ -263,15 +226,15 @@ bool startWebInterface(WIFI_TYPE wifiType)
 	strcpy(joinApPassword_, "UNKNOWN");
 
 	// Set HOST_AP values
-	hostApSSID_ = (char*)malloc(sizeof("MX5-HybridDash Control Board"));
-	strcpy(hostApSSID_, "MX5-HybridDash Control Board");
+	hostApSSID_ = (char*)malloc(sizeof("MX5-HybridDash Sensor Board"));
+	strcpy(hostApSSID_, "MX5-HybridDash Sensor Board");
 	hostApPassword_ = (char*)malloc(sizeof("MX5-HybridDashV2"));
 	strcpy(hostApPassword_, "MX5-HybridDashV2");
 
 	/*
 	 *	Open the configuration file
 	 */
-	const FILE* cfgFile = fopen("/spiffs/config.json", "r");
+	const FILE* cfgFile = fopen("/resources/config.json", "r");
 
 	// If it worked pull all needed values
 	if (cfgFile != NULL) {
@@ -380,7 +343,10 @@ bool startWebInterface(WIFI_TYPE wifiType)
 		loggerInfo("Joining AP...");
 
 		// Create an instance
-		esp_netif_create_default_wifi_sta();
+		const esp_netif_t* netif = esp_netif_create_default_wifi_sta();
+
+		// Set the name of the device
+		esp_netif_set_hostname((esp_netif_t*)netif, "MX5-HybridDash Sensor Board");
 
 		// Load the initial config
 		wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -425,7 +391,7 @@ bool startWebInterface(WIFI_TYPE wifiType)
 	success &= httpd_start(&httpdHandle_, &config) == ESP_OK;
 
 	// Register the URIs
-	success &= httpd_register_uri_handler(httpdHandle_, &fileHandlerURI);
+	success &= httpd_register_uri_handler(httpdHandle_, &webinterfaceHandlerURI);
 
 	return success;
 }

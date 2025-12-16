@@ -255,6 +255,11 @@ void app_main(void)
 				 * Request the HW UUID of all devices
 				 */
 				case QUEUE_REQUEST_UUID:
+					// DEBUGGING!!!!!!!!!
+					char* msg = malloc(strlen("{\"test\":\"123\",\"test2\":\"457\"}") + 1);
+					strcpy(msg, "{\"test\":\"123\",\"test2\":\"457\"}");
+					webinterfaceSendData(msg);
+
 					// Did we receive all HW UUIDs?
 					bool allUUIDsReceived = true;
 					for (int i = 0; i < sizeof(knownHwUUIDs); i++) {
@@ -645,7 +650,7 @@ bool initializeAdcChannels(void)
 
 void debugListAllSpiffsFiles()
 {
-	DIR* dir = opendir("/spiffs"); // Muss mit base_path übereinstimmen
+	DIR* dir = opendir("/resources"); // Muss mit base_path übereinstimmen
 	if (dir == NULL) {
 		loggerDebug("Fehler beim Öffnen des Verzeichnisses");
 		return;
@@ -657,8 +662,8 @@ void debugListAllSpiffsFiles()
 		loggerDebug("Gefundene Datei: %s", entry->d_name);
 
 		// Vollen Pfad zusammenbauen
-		char path[264];
-		snprintf(path, sizeof(path), "/spiffs/%s", entry->d_name);
+		char path[267];
+		snprintf(path, sizeof(path), "/resources/%s", entry->d_name);
 
 		// 3. Dateiinhalt lesen und ausgeben
 		FILE* f = fopen(path, "r");

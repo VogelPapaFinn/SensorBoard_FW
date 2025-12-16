@@ -21,3 +21,4 @@ typedef enum
  *	Public Functions
  */
 bool startWebInterface(WIFI_TYPE wifiType);
+void webinterfaceSendData(const char* data);
