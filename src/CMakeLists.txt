@@ -13,6 +13,10 @@ set(FILES
         # Global stuff
         "../include/Global.h"
         "Global.c"
+
+        # Data Center
+        "../include/DataCenter.h"
+        "DataCenter.c"
 )
 
 idf_component_register(SRCS ${FILES}

@@ -1,41 +1,40 @@
 <!-- Display Overview -->
-<div id="display1-div"  class="display-box">
+<div id="display-div"  class="display-box">
     <h3>Display 1:</h3>
 
     <!-- Connection Status -->
     <div class="grid">
         <label class="text-left">Status:</label>
-        <label class="text-right"><ins>Verbunden</ins></label>
+        <label id="connected" class="text-right"><ins>Verbunden</ins></label>
     </div>
     
     <!-- Firmware Version -->
     <div class="grid">
         <label class="text-left">Firmware Version:</label>
-        <label class="text-right">v1.0</label>
+        <label id="firmware" class="text-right">v1.0</label>
     </div>
     
     <!-- HW UUID -->
     <div class="grid">
         <label class="text-left">HW UUID:</label>
-        <label class="text-right">adef-casd</label>
+        <label id="hw-uuid" class="text-right"></label>
     </div>
     
     <!-- COM ID -->
     <div class="grid">
         <label class="text-left">COM ID:</label>
-        <label class="text-right">1</label>
+        <label id="com-id" class="text-right">1</label>
     </div>
 
-    
     <!-- WiFi Status -->
     <div class="grid">
         <label class="text-left">WiFi:</label>
-        <label class="text-right">Turned Off</label>
+        <label id="wifi" class="text-right">Turned Off</label>
     </div>
     <p class="small-spacer"></p>
 
     <!-- Buttons -->
     <div class="grid">
-        <button>Restart</button>
+        <button id="restart-button">Restart</button>
     </div>
 </div>

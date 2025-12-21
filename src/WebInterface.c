@@ -1,5 +1,7 @@
 // Project includes
 #include "WebInterface.h"
+#include "DataCenter.h"
+#include "logger.h"
 
 // espidf includes
 #include <esp_http_server.h>
@@ -8,9 +10,9 @@
 #include <esp_wifi_default.h>
 #include <nvs_flash.h>
 #include <sys/dirent.h>
+#include <sys/param.h>
 
 #include "../../esp-idf/components/json/cJSON/cJSON.h"
-#include "logger.h"
 
 /*
  *	Defines
@@ -47,24 +49,82 @@ static const char* getMimeType(const char* filepath)
 		return "image/x-icon";
 	return "text/plain";
 }
-static esp_err_t webinterfaceHandler(httpd_req_t* req)
+
+static esp_err_t requestHandler(httpd_req_t* reqst)
+{
+	// Websocket Handshake
+	if (strcmp(reqst->uri, "/ws") == 0) {
+		// Handshake
+		if (reqst->method == HTTP_GET) {
+			return ESP_OK;
+		}
+	}
+	// Request of initial data
+	else if (strcmp(reqst->uri, "/api/get/initial_data") == 0) {
+		// Send the initial data
+		const char* const jsonOutput = getAllDisplayStatiAsJSON();
+		if (jsonOutput != NULL) {
+			webinterfaceSendData(jsonOutput);
+		}
+		return ESP_OK;
+	}
+	else if (strcmp(reqst->uri, "/api/post/restart_display") == 0) {
+		// Is it a POST request?
+		if (reqst->method != HTTP_POST) {
+			return ESP_ERR_INVALID_ARG;
+		}
+
+		// Get the data
+		char dataBuffer[128];
+		const uint8_t dataLength = reqst->content_len;
+		httpd_req_recv(reqst, dataBuffer, sizeof(dataBuffer));
+
+		// Parse it to JSON
+		cJSON* root = cJSON_Parse(dataBuffer);
+		if (root == NULL) {
+			return ESP_ERR_INVALID_ARG;
+		}
+
+		// Get the COMID
+		const cJSON* id = cJSON_GetObjectItem(root, "id");
+		if (cJSON_IsString(id) && (id->valuestring != NULL)) {
+			// Restart the display
+			QUEUE_EVENT_T restartDisplayRequest;
+			restartDisplayRequest.command = QUEUE_RESTART_DISPLAY;
+
+			// Allocate the parameter memory and copy the value to the memory
+			restartDisplayRequest.parameter = malloc(strlen(id->valuestring));
+			memcpy(restartDisplayRequest.parameter, id->valuestring, strlen(id->valuestring));
+
+			// Set the parameter length
+			restartDisplayRequest.parameterLength = strlen(id->valuestring);
+
+			// Send it to the queue
+			xQueueSend(mainEventQueue, &restartDisplayRequest, portMAX_DELAY);
+		}
+
+		// Free memory
+		cJSON_Delete(root);
+	}
+	return ESP_OK;
+}
+
+static esp_err_t fileHandler(httpd_req_t* reqst)
 {
 	// Array which holds the file path of the file we return
 	char filepath[600];
 
 	// Check if it is the index.html file
-	if (strcmp(req->uri, "") == 0) {
+	if (strcmp(reqst->uri, "") == 0) {
 		return ESP_ERR_INVALID_ARG;
 	}
-	else if (strcmp(req->uri, "/ws") == 0) {
-		return ESP_OK;
-	}
-	else if (strcmp(req->uri, "/") == 0) {
+	// File request
+	else if (strcmp(reqst->uri, "/") == 0) {
 		strcpy(filepath, "/resources/webinterface/index.html");
 	}
 	else {
 		// Otherwise build the absolute path to the requested file
-		snprintf(filepath, sizeof(filepath), "/resources/webinterface%s", req->uri);
+		snprintf(filepath, sizeof(filepath), "/resources/webinterface%s", reqst->uri);
 	}
 
 	// Then open the file as read only
@@ -76,7 +136,7 @@ static esp_err_t webinterfaceHandler(httpd_req_t* req)
 	}
 
 	// Set the MIME Type
-	httpd_resp_set_type(req, getMimeType(filepath));
+	httpd_resp_set_type(reqst, getMimeType(filepath));
 
 	// Send the file in 4KB chunks
 	char* chunk = malloc(4096);
@@ -95,7 +155,7 @@ static esp_err_t webinterfaceHandler(httpd_req_t* req)
 		// Send if the chunk is not emptz
 		if (chunksize > 0) {
 			// Send the chunk to the requestor
-			if (httpd_resp_send_chunk(req, chunk, chunksize) != ESP_OK) {
+			if (httpd_resp_send_chunk(reqst, chunk, chunksize) != ESP_OK) {
 				// Something went wrong
 				fclose(reqFile);
 				free(chunk);
@@ -109,12 +169,11 @@ static esp_err_t webinterfaceHandler(httpd_req_t* req)
 	fclose(reqFile);
 	free(chunk);
 
-	// Send one last emptz chunk to signalize the end of the transmission
-	httpd_resp_send_chunk(req, NULL, 0);
+	// Send one last empty chunk to signalize the end of the transmission
+	httpd_resp_send_chunk(reqst, NULL, 0);
 
 	return ESP_OK;
 }
-
 
 /*
  *	Other Handlers
@@ -124,7 +183,17 @@ static esp_err_t webinterfaceHandler(httpd_req_t* req)
  *	URIs
  */
 static const httpd_uri_t webinterfaceHandlerURI = {
-	.uri = "/*", .method = HTTP_GET, .handler = webinterfaceHandler, .user_ctx = NULL, .is_websocket = true};
+	.uri = "/*", .method = HTTP_GET, .handler = fileHandler, .user_ctx = NULL
+};
+static const httpd_uri_t webinterfaceWebsocketHandlerURI = {
+	.uri = "/ws*", .method = HTTP_GET, .handler = requestHandler, .user_ctx = NULL, .is_websocket = true
+};
+static const httpd_uri_t webinterfaceApiGETHandlerURI = {
+	.uri = "/api/get*", .method = HTTP_GET, .handler = requestHandler, .user_ctx = NULL
+};
+static const httpd_uri_t webinterfaceApiPOSTHandlerURI = {
+	.uri = "/api/post*", .method = HTTP_POST, .handler = requestHandler, .user_ctx = NULL
+};
 
 /*
  *	Private Variables
@@ -145,6 +214,9 @@ void webinterfaceBroadcastWorker(void* arg)
 {
 	// Cast the arg to a message
 	char* message = arg;
+	if (message == NULL) {
+		return;
+	}
 
 	// Get all open connections
 	size_t amountOfOpenConnections = MAX_HTTP_CONNECTIONS;
@@ -211,7 +283,8 @@ bool startWebInterface(WIFI_TYPE wifiType)
 	 */
 	// Create the partition config for mounting
 	const esp_vfs_spiffs_conf_t partitionConfig = {
-		.base_path = "/resources", .partition_label = "resources", .max_files = 5, .format_if_mount_failed = false};
+		.base_path = "/resources", .partition_label = "resources", .max_files = 5, .format_if_mount_failed = false
+	};
 
 	// Mount the partition
 	success &= esp_vfs_spiffs_register(&partitionConfig) == ESP_OK;
@@ -269,9 +342,13 @@ bool startWebInterface(WIFI_TYPE wifiType)
 
 			// Check if they are valid
 			if (cJSON_IsString(joinApSSID) && joinApSSID->valuestring != NULL) {
+				free(joinApSSID_);
+				joinApSSID_ = malloc(strlen(joinApSSID->valuestring));
 				strcpy(joinApSSID_, joinApSSID->valuestring);
 			}
 			if (cJSON_IsString(joinApPassword) && joinApPassword->valuestring != NULL) {
+				free(joinApPassword_);
+				joinApPassword_ = malloc(strlen(joinApPassword->valuestring));
 				strcpy(joinApPassword_, joinApPassword->valuestring);
 			}
 
@@ -281,9 +358,13 @@ bool startWebInterface(WIFI_TYPE wifiType)
 
 			// Check if they are valid
 			if (cJSON_IsString(hostApSSID) && hostApSSID->valuestring != NULL) {
+				free(hostApSSID_);
+				hostApSSID_ = malloc(strlen(hostApSSID->valuestring));
 				strcpy(hostApSSID_, hostApSSID->valuestring);
 			}
 			if (cJSON_IsString(hostApPassword) && hostApPassword->valuestring != NULL) {
+				free(hostApPassword_);
+				hostApPassword_ = malloc(strlen(hostApPassword->valuestring));
 				strcpy(hostApPassword_, hostApPassword->valuestring);
 			}
 
@@ -322,14 +403,16 @@ bool startWebInterface(WIFI_TYPE wifiType)
 
 		// Create the WiFi config
 		wifi_config_t wifiConfig;
-		wifiConfig = (wifi_config_t){.ap = {
-										 //.ssid = hostApSSID_,
-										 .ssid_len = strlen(hostApSSID_),
-										 .channel = 1,
-										 //.password = hostApPassword_,
-										 .max_connection = 4,
-										 .authmode = WIFI_AUTH_WPA2_PSK,
-									 }};
+		wifiConfig = (wifi_config_t){
+			.ap = {
+				//.ssid = hostApSSID_,
+				.ssid_len = strlen(hostApSSID_),
+				.channel = 1,
+				//.password = hostApPassword_,
+				.max_connection = 4,
+				.authmode = WIFI_AUTH_WPA2_PSK,
+			}
+		};
 		strlcpy((char*)wifiConfig.ap.ssid, hostApSSID_, sizeof(wifiConfig.ap.ssid));
 		strlcpy((char*)wifiConfig.ap.password, hostApPassword_, sizeof(wifiConfig.ap.password));
 
@@ -346,7 +429,7 @@ bool startWebInterface(WIFI_TYPE wifiType)
 		const esp_netif_t* netif = esp_netif_create_default_wifi_sta();
 
 		// Set the name of the device
-		esp_netif_set_hostname((esp_netif_t*)netif, "MX5-HybridDash Sensor Board");
+		// esp_netif_set_hostname((esp_netif_t*)netif, "HybridDash");
 
 		// Load the initial config
 		wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -356,11 +439,11 @@ bool startWebInterface(WIFI_TYPE wifiType)
 		wifi_config_t wifiConfig;
 		wifiConfig = (wifi_config_t){
 			.sta =
-				{
-					//.ssid = joinApSSID_,
-					//.password = joinApPassword_,
-					.threshold.authmode = WIFI_AUTH_WPA2_PSK,
-				},
+			{
+				//.ssid = joinApSSID_,
+				//.password = joinApPassword_,
+				.threshold.authmode = WIFI_AUTH_WPA2_PSK,
+			},
 		};
 		strlcpy((char*)wifiConfig.sta.ssid, joinApSSID_, sizeof(wifiConfig.sta.ssid));
 		strlcpy((char*)wifiConfig.sta.password, joinApPassword_, sizeof(wifiConfig.sta.password));
@@ -391,7 +474,9 @@ bool startWebInterface(WIFI_TYPE wifiType)
 	success &= httpd_start(&httpdHandle_, &config) == ESP_OK;
 
 	// Register the URIs
+	success &= httpd_register_uri_handler(httpdHandle_, &webinterfaceWebsocketHandlerURI);
+	success &= httpd_register_uri_handler(httpdHandle_, &webinterfaceApiGETHandlerURI);
+	success &= httpd_register_uri_handler(httpdHandle_, &webinterfaceApiPOSTHandlerURI);
 	success &= httpd_register_uri_handler(httpdHandle_, &webinterfaceHandlerURI);
-
 	return success;
 }

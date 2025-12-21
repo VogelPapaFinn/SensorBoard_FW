@@ -1,5 +1,6 @@
 // Project includes
 #include "Global.h"
+#include "DataCenter.h"
 #include "can.h"
 #include "can_messages.h"
 #include "logger.h"
@@ -13,6 +14,7 @@
 #include <sys/dirent.h>
 #include <sys/stat.h>
 
+#include "../../esp-idf/components/json/cJSON/cJSON.h"
 #include "WebInterface.h"
 #include "driver/gpio.h"
 #include "esp_adc/adc_oneshot.h"
@@ -20,6 +22,10 @@
 /*
  *	Defines
  */
+// CAN
+#define CAN_SENDER_ID 0x00
+
+// Intervals
 #define READ_SENSOR_DATA_INTERVAL_MS 50
 #define SEND_SENSOR_DATA_INTERVAL_MS 100
 
@@ -50,13 +56,14 @@
  */
 void requestUUIDsISR(void* arg);
 void readSensorDataISR(void* arg);
-void sendSensorDataISR(void* arg);
 
 void sendUUIDRequest(void);
 bool initializeAdcChannels(void);
 
 void IRAM_ATTR speedISR();
 void IRAM_ATTR rpmISR();
+
+void convertSingleToDoubleQuote(char* str);
 
 void debugListAllSpiffsFiles();
 
@@ -70,12 +77,10 @@ uint8_t uuidRequestCounter_;
 bool operationModeInitialized_ = false;
 
 esp_timer_handle_t readSensorDataTimerHandle_;
-const esp_timer_create_args_t readSensorDataTimerConf_ = {.callback = &readSensorDataISR,
-														  .name = "Read Sensor Data Timer"};
-
-esp_timer_handle_t sendSensorDataTimerHandle_;
-const esp_timer_create_args_t sendSensorDataTimerConf_ = {.callback = &sendSensorDataISR,
-														  .name = "Send Sensor Data Timer"};
+const esp_timer_create_args_t readSensorDataTimerConf_ = {
+	.callback = &readSensorDataISR,
+	.name = "Read Sensor Data Timer"
+};
 
 adc_oneshot_unit_handle_t adc1Handle_;
 adc_oneshot_unit_handle_t adc2Handle_;
@@ -136,18 +141,6 @@ void requestUUIDsISR(void* arg)
 	xQueueSendFromISR(mainEventQueue, &registerHwUUID, &xHigherPriorityTaskWoken);
 }
 
-//! \brief Connected to a Timer timeout to send new sensor data to the displays
-void sendSensorDataISR(void* arg)
-{
-	// Create the event
-	QUEUE_EVENT_T sendData;
-	sendData.command = QUEUE_SEND_SENSOR_DATA;
-
-	// Queue it
-	BaseType_t xHigherPriorityTaskWoken;
-	xQueueSendFromISR(mainEventQueue, &sendData, &xHigherPriorityTaskWoken);
-}
-
 //! \brief Connected to a Timer timeout to read the data from all sensor
 void readSensorDataISR(void* arg)
 {
@@ -182,12 +175,18 @@ void app_main(void)
 	// Create the event queues
 	createEventQueues();
 
+	// Initialize the Data Center
+	initDataCenter();
+
 	// Initialize the can node
 	twai_node_handle_t* canNodeHandle = initializeCanNode(GPIO_NUM_43, GPIO_NUM_2);
 	enableCanNode();
 
 	// Register the queue to the CAN bus
-	registerMessageReceivedCbQueue(&mainEventQueue);
+	registerCanRxCbQueue(&mainEventQueue);
+
+	// Register the queue to the Data Center
+	registerDataCenterCbQueue(&mainEventQueue);
 
 	// Send a UUID Request
 	QUEUE_EVENT_T initRequest;
@@ -205,44 +204,106 @@ void app_main(void)
 			// Act depending on the event
 			switch (queueEvent.command) {
 				/*
+				 *	Restart Display
+				 */
+				case QUEUE_RESTART_DISPLAY:
+					// Do we have parameters?
+					if (queueEvent.parameterLength <= 0) {
+						loggerDebug("Not enough parameters");
+
+						break;
+					}
+
+					// Create the can frame answer
+					twai_frame_t* restartFrame = generateCanFrame(
+						CAN_MSG_DISPLAY_RESTART, CAN_SENDER_ID, queueEvent.parameter, queueEvent.parameterLength);
+
+					// Send the frame
+					queueCanBusMessage(restartFrame, true, true);
+					break;
+
+				/*
 				 *	We received a CAN message
 				 */
 				case QUEUE_RECEIVED_NEW_CAN_MESSAGE:
+					loggerInfo("Received new can message");
+
 					// Get the frame
 					const twai_frame_t recFrame = queueEvent.canFrame;
 
 					// Are we in the INIT state and is it an answer from one of the displays?
-					if (currState == STATE_INIT && recFrame.buffer_len >= 1) {
+					if ((recFrame.header.id >> 21) == CAN_MSG_REGISTRATION && recFrame.buffer_len >= 6) {
+						// Extract the UUID
+						uint64_t uuid = 0x00;
+						for (int i = 0; i < 6; i++) {
+							uuid += recFrame.buffer[i] << (i * 8);
+						}
+
 						// Iterate through all UUIDs we already know
 						for (int i = 0; i < AMOUNT_OF_DISPLAYS; i++) {
 							// Is the one we received one of them?
-							if (knownHwUUIDs[i] == 0 || knownHwUUIDs[i] == recFrame.buffer[0]) {
+							if (knownHwUUIDs[i] == 0 || knownHwUUIDs[i] == uuid) {
 								// Then save it
-								knownHwUUIDs[i] = recFrame.buffer[0];
+								knownHwUUIDs[i] = uuid;
 
 								// Create the buffer for the answer CAN frame
-								uint8_t* buffer = malloc(sizeof(uint8_t) * 2);
+								uint8_t* buffer = malloc(sizeof(uint8_t) * 7);
 								if (buffer == NULL) {
 									break;
 								}
-								buffer[0] = knownHwUUIDs[i];
-								buffer[1] = i;
+								buffer[0] = recFrame.buffer[0];
+								buffer[1] = recFrame.buffer[1];
+								buffer[2] = recFrame.buffer[2];
+								buffer[3] = recFrame.buffer[3];
+								buffer[4] = recFrame.buffer[4];
+								buffer[5] = recFrame.buffer[5];
+								buffer[6] = i;
 
-								// Create the CAN answer frame
-								twai_frame_t* frame = malloc(sizeof(twai_frame_t));
-								memset(frame, 0, sizeof(*frame));
-								frame->header.id = CAN_MSG_SET_ID;
-								frame->header.dlc = 2;
-								frame->header.ide = false;
-								frame->header.rtr = false;
-								frame->header.fdf = false;
-								frame->buffer = buffer;
-								frame->buffer_len = 2;
+								// Create the can frame answer
+								twai_frame_t* frame = generateCanFrame(
+									CAN_MSG_COMID_ASSIGNATION, CAN_SENDER_ID, buffer, 7);
 
 								// Send the frame
 								queueCanBusMessage(frame, true, true);
 
-								loggerInfo("Sending ID '%d' to UUID '%d'", buffer[1], buffer[0]);
+								// Logging
+								loggerInfo("Sending ID '%d' to UUID '%d-%d-%d-%d-%d-%d'", i, recFrame.buffer[5],
+								           recFrame.buffer[4], recFrame.buffer[3], recFrame.buffer[2],
+								           recFrame.buffer[1], recFrame.buffer[0]);
+
+								// Build a formatted UUID
+								char* formattedUUID = malloc(sizeof(char) * 24);
+								snprintf(formattedUUID, 24, "%d-%d-%d-%d-%d-%d", recFrame.buffer[5], recFrame.buffer[4],
+								         recFrame.buffer[3], recFrame.buffer[2], recFrame.buffer[1],
+								         recFrame.buffer[0]);
+
+								// Get all displays
+								Display_t* displays = getDisplayStatiObjects();
+								Display_t* display = NULL;
+
+								// Check if the one that connected is already being tracked
+								for (uint8_t j = 0; j < AMOUNT_OF_DISPLAYS; j++) {
+									// Does the uuid match?
+									if (displays[j].uuid != NULL && strcmp(displays[j].uuid, formattedUUID) == 0) {
+										display = &displays[j];
+										break;
+									}
+									// Nope and all following entries are default ones, so take this one
+									else if (displays[j].uuid == NULL) {
+										display = &displays[j];
+										break;
+									}
+								}
+
+								// Set its values
+								display->connected = true;
+								display->uuid = formattedUUID;
+								display->comId = i;
+								display->wifiStatus = malloc(strlen("Turned Off") + 1);
+								strcpy(display->wifiStatus, "Turned Off");
+
+								// Notify everybody that the display stati changed
+								broadcastDisplayStatiChanged();
 
 								break;
 							}
@@ -255,11 +316,6 @@ void app_main(void)
 				 * Request the HW UUID of all devices
 				 */
 				case QUEUE_REQUEST_UUID:
-					// DEBUGGING!!!!!!!!!
-					char* msg = malloc(strlen("{\"test\":\"123\",\"test2\":\"457\"}") + 1);
-					strcpy(msg, "{\"test\":\"123\",\"test2\":\"457\"}");
-					webinterfaceSendData(msg);
-
 					// Did we receive all HW UUIDs?
 					bool allUUIDsReceived = true;
 					for (int i = 0; i < sizeof(knownHwUUIDs); i++) {
@@ -285,17 +341,17 @@ void app_main(void)
 						}
 
 						// Should we switch to the operation state?
-						if (uuidRequestCounter_ >= 10 && currState != STATE_OPERATION) {
-							setCurrentState(STATE_OPERATION);
-
-							// Log it
-							loggerInfo("Not all displays registered themselves within 2 Seconds");
-
-							// Queue the init of the operation mode
-							QUEUE_EVENT_T rq;
-							rq.command = QUEUE_INIT_OPERATION_MODE;
-							xQueueSend(mainEventQueue, &rq, pdMS_TO_TICKS(50));
-						}
+						// if (uuidRequestCounter_ >= 10 && currState != STATE_OPERATION) {
+						//	setCurrentState(STATE_OPERATION);
+						//
+						//	// Log it
+						//	loggerInfo("Not all displays registered themselves within 2 Seconds");
+						//
+						//	// Queue the init of the operation mode
+						//	QUEUE_EVENT_T rq;
+						//	rq.command = QUEUE_INIT_OPERATION_MODE;
+						//	xQueueSend(mainEventQueue, &rq, pdMS_TO_TICKS(50));
+						//}
 					}
 					else {
 						// Delete the timer
@@ -334,18 +390,7 @@ void app_main(void)
 						}
 						if (!esp_timer_is_active(readSensorDataTimerHandle_)) {
 							initSucceeded &= esp_timer_start_periodic(readSensorDataTimerHandle_,
-																	  READ_SENSOR_DATA_INTERVAL_MS * 1000);
-						}
-
-						/*
-						 *	Start sending the sensor data to the displays
-						 */
-						if (sendSensorDataTimerHandle_ == NULL) {
-							initSucceeded &= esp_timer_create(&sendSensorDataTimerConf_, &sendSensorDataTimerHandle_);
-						}
-						if (!esp_timer_is_active(sendSensorDataTimerHandle_)) {
-							initSucceeded &=
-								esp_timer_start_once(sendSensorDataTimerHandle_, SEND_SENSOR_DATA_INTERVAL_MS * 1000);
+							                                          READ_SENSOR_DATA_INTERVAL_MS * 1000);
 						}
 
 						/*
@@ -354,7 +399,7 @@ void app_main(void)
 						initSucceeded &= initializeAdcChannels();
 
 						// Finished the initialization
-						operationModeInitialized_ = initSucceeded;
+						operationModeInitialized_ = true;
 
 						// List all files on the spiffs partition
 						// debugListAllSpiffsFiles();
@@ -367,12 +412,14 @@ void app_main(void)
 				 *	Read the sensor data
 				 */
 				case QUEUE_READ_SENSOR_DATA:
+					// broadcastSensorDataChanged();
+
 					break;
 
 				/*
 				 *	Send the sensor data
 				 */
-				case QUEUE_SEND_SENSOR_DATA:
+				case QUEUE_SENSOR_DATA_CHANGED:
 					// Are we successfully initialize?
 					if (!operationModeInitialized_) {
 						break;
@@ -393,19 +440,24 @@ void app_main(void)
 					buffer[7] = rightIndicator;
 
 					// Create the CAN answer frame
-					twai_frame_t* frame = malloc(sizeof(twai_frame_t));
-					memset(frame, 0, sizeof(*frame));
-					frame->header.id = CAN_MSG_NEW_SENSOR_DATA;
-					frame->header.dlc = 8;
-					frame->header.ide = false;
-					frame->header.rtr = false;
-					frame->header.fdf = false;
-					frame->buffer = buffer;
-					frame->buffer_len = 8;
+					twai_frame_t* sensorDataFrame = generateCanFrame(CAN_MSG_SENSOR_DATA, CAN_SENDER_ID, buffer, 8);
 
 					// Send the frame
-					queueCanBusMessage(frame, true, true);
+					queueCanBusMessage(sensorDataFrame, true, true);
 
+					break;
+
+				/*
+				 *	Display Stati Changed
+				 */
+				case QUEUE_DISPLAY_STATI_CHANGED:
+					// Get all displays
+					char* jsonOutput = getAllDisplayStatiAsJSON();
+
+					// Send the data to the webserver
+					if (jsonOutput != NULL) {
+						webinterfaceSendData(jsonOutput);
+					}
 					break;
 
 				/*
@@ -425,13 +477,7 @@ void app_main(void)
 void sendUUIDRequest(void)
 {
 	// Create the can frame
-	twai_frame_t* frame = malloc(sizeof(twai_frame_t));
-	memset(frame, 0, sizeof(*frame));
-	frame->header.id = CAN_MSG_REQUEST_HW_UUID;
-	frame->header.dlc = 1;
-	frame->header.ide = false;
-	frame->header.rtr = true;
-	frame->header.fdf = false;
+	twai_frame_t* frame = generateCanFrame(CAN_MSG_REGISTRATION, CAN_SENDER_ID, NULL, 0);
 
 	// Send the frame
 	queueCanBusMessage(frame, true, false);
@@ -646,6 +692,22 @@ bool initializeAdcChannels(void)
 	/* --- Configure the internal temperature sensor --- */
 
 	return true;
+}
+
+void convertSingleToDoubleQuote(char* str)
+{
+	// NULL check
+	if (str == NULL) {
+		return;
+	}
+
+	// Replace all ' with "
+	while (*str) {
+		if (*str == '\'') {
+			*str = '\"';
+			str++;
+		}
+	}
 }
 
 void debugListAllSpiffsFiles()

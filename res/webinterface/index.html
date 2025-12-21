@@ -23,19 +23,8 @@
 <div id="body-content">
     <h2>Connected Displays</h2>
 
-    <label id="tet">tet</label>
-    <label id="tet2">tet</label>
-
     <div class="grid">
-        <div class="grid">
-            <!-- Load display 1 -->
-            <div class="display-overview"></div>
-            <script src="widgets/display-overview.js"></script>
-
-            <!-- Load display 2 -->
-            <div class="display-overview"></div>
-            <script src="widgets/display-overview.js"></script>
-        </div>
+        <div id="display-overview-panel" class="grid"></div>
     </div>
 </div>
 
@@ -47,15 +36,100 @@
         console.log("initWebSocket");
         websocket = new WebSocket(gateway);
         websocket.onmessage = onMessage;
+        websocket.onopen = onOpen
     }
 
-    function onMessage(event) {
-        console.log("Server Push: " + event.data);
+    async function onMessage(event) {
         var data = JSON.parse(event.data);
+        console.log(data);
 
-        // Test
-        document.getElementById('tet').innerHTML = data.test
-        document.getElementById('tet2').innerHTML = data.test2
+        switch(data.type) {
+            case "DISPLAY_STATI":
+                var htmlDisplays = document.getElementById("display-overview-panel").children;
+                var jsonDisplays = data.displays;
+
+                // Iterate through all json displays
+                for(let i = 0; i < jsonDisplays.length; i++) {
+                    // Then iterate through all html displays
+                    let htmlDisplay = null
+                    let jsonDisplay = jsonDisplays[i]
+                    for(let j = 0; j < htmlDisplays.length; j++) {
+                        // Does the UUID match?
+                        console.log(htmlDisplays[j].querySelector("#hw-uuid").innerHTML);
+                        console.log(sonDisplay.uuid);
+                        if(htmlDisplays[j].querySelector("#hw-uuid").innerHTML == jsonDisplay.uuid) {
+                            htmlDisplay = htmlDisplays[j]
+                            break;
+                        }
+                    }
+
+                    // Do we need to create a new entry?
+                    if (htmlDisplay == null) {
+                        await fetch('widgets/display-overview.html')
+                        .then(response => response.text())
+                        .then(text => {
+                            // Add the child
+                            let displayPanel = document.getElementById('display-overview-panel');
+                            displayPanel.innerHTML += text;
+
+                            // Then find it
+                            for(let l = 0; l < displayPanel.children.length; l++) {
+                                if(displayPanel.children[l].id == "display-div") {
+                                    // Alter its ID
+                                    displayPanel.children[l].id == "display" + l.toString()  + "-div";
+
+                                    // Save it
+                                    htmlDisplay = displayPanel.children[l];
+
+                                    // Connect to the restart button
+                                    let btn = htmlDisplay.querySelector("#restart-button")
+                                    btn.addEventListener('click', (event) => {
+                                        try {
+                                            // Alter the label
+                                            htmlDisplay.querySelector("#connected").innerHTML = "Restarting"
+                                            htmlDisplay.querySelector("#connected").style.color = "#FFBF00";
+
+                                            // Request the restart
+                                            fetch('/api/post/restart_display', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ id: htmlDisplay.querySelector("#com-id").innerHTML
+                                                })
+                                            });
+                                        } catch (error) {
+                                            console.error("Couldn't restart display: ", error);
+                                        }
+                                    })
+
+                                    break;
+                                }
+                            }
+                        });
+                    }
+
+                    // Update its values
+                    htmlDisplay.querySelector("#connected").innerHTML = jsonDisplay.connected == true ? "Connected" : "Disconnected";
+                    htmlDisplay.querySelector("#connected").style.color = jsonDisplay.connected == true ? "#008000" : "#F54927";
+                    if(jsonDisplay.firmware != null) {
+                        htmlDisplay.querySelector("#firmware").innerHTML = jsonDisplay.firmware;
+                    } else {
+                        htmlDisplay.querySelector("#firmware").innerHTML = "UNKNOWN";
+                    }
+                    if(jsonDisplay.uuid != null) {
+                        htmlDisplay.querySelector("#hw-uuid").innerHTML = jsonDisplay.uuid;
+                    }
+                    htmlDisplay.querySelector("#com-id").innerHTML = jsonDisplay.com_id;
+                    if(jsonDisplay.wifi != null) {
+                        htmlDisplay.querySelector("#wifi").innerHTML = jsonDisplay.wifi;
+                    }
+                }
+                break;
+        }
+    }
+
+    function onOpen() {
+        // Send a request on startup to get the initial data
+        fetch('/api/get/initial_data');
     }
 
     window.addEventListener('load', initWebSocket);
