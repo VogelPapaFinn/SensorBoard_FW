@@ -25,7 +25,7 @@ typedef enum
 {
 	STATE_INIT,
 	STATE_OPERATION,
-} State_t;
+} STATE_T;
 
 //! \brief A typedef enum that contains commands for all Queues
 typedef enum

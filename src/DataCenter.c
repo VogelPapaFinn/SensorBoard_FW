@@ -33,10 +33,17 @@ void broadcast(QUEUE_EVENT_T event)
 }
 
 /*
+ *	External Variables
+ */
+uint8_t amountOfConnectedDisplays = 0;
+
+/*
  *	Public Functions
  */
-void initDataCenter()
+void dataCenterInit()
 {
+	amountOfConnectedDisplays = 0;
+
 	// Initialize all displays
 	for (uint8_t i = 0; i < AMOUNT_OF_DISPLAYS; i++) {
 		displays_[i].connected = false;

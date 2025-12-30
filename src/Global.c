@@ -6,8 +6,6 @@ QueueHandle_t updateEventQueue = NULL;
 
 QueueHandle_t mainEventQueue = NULL;
 
-uint64_t knownHwUUIDs[AMOUNT_OF_DISPLAYS] = {0x00};
-
 bool createEventQueues()
 {
 	// Create the event Queue for the Update Handler

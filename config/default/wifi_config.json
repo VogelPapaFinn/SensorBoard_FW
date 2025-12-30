@@ -1,0 +1,7 @@
+{
+  "wifiMode": "HOST_AP",
+  "hostApSSID": "MX5-HybridDash Sensor Board",
+  "hostApPassword": "MX5-HybridDashV2",
+  "joinApSSID": "",
+  "joinApPassword": ""
+}

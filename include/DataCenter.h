@@ -27,6 +27,9 @@ typedef struct
 	//! \brief The assigned COM ID
 	uint8_t comId;
 
+	//! \brief The screen it displays: 0 = temperature, 1 = speed, 2 = RPM
+	uint8_t screen;
+
 	//! \brief The current WiFi status
 	char* wifiStatus;
 } Display_t;
@@ -60,8 +63,8 @@ extern bool rightIndicator;
  *	Connection Stuff
  */
 
-//! \brief Contains all known HW UUIDs
-extern uint64_t knownHwUUIDs[AMOUNT_OF_DISPLAYS];
+//! \brief Amount of connected displays. Used for assigning the COM IDs
+extern uint8_t amountOfConnectedDisplays;
 
 //! \brief The IP address we get assigned when joining an AP
 extern uint8_t ipAddress[4];
@@ -69,7 +72,7 @@ extern uint8_t ipAddress[4];
 /*
  *	Public functions
  */
-void initDataCenter();
+void dataCenterInit();
 
 bool registerDataCenterCbQueue(QueueHandle_t* queueHandle);
 
