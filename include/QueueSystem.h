@@ -9,7 +9,6 @@
 /*
  *	Defines
  */
-#define AMOUNT_OF_DISPLAYS 1
 
 /*
  *	Public Stuff
@@ -31,17 +30,17 @@ typedef enum
 typedef enum
 {
 	/* CAN */
-	QUEUE_RECEIVED_NEW_CAN_MESSAGE,
+	RECEIVED_NEW_CAN_MESSAGE,
 
 	/* MAIN */
-	QUEUE_REQUEST_UUID,
-	QUEUE_INIT_OPERATION_MODE,
-	QUEUE_READ_SENSOR_DATA,
-	QUEUE_RESTART_DISPLAY,
+	REQUEST_UUID,
+	INIT_OPERATION_MODE,
+	READ_SENSOR_DATA,
+	RESTART_DISPLAY,
 
 	/* DATA CENTER */
-	QUEUE_SENSOR_DATA_CHANGED,
-	QUEUE_DISPLAY_STATI_CHANGED,
+	SENSOR_DATA_CHANGED,
+	DISPLAY_STATI_CHANGED,
 } QueueCommand_t;
 
 //! \brief A typedef struct which is used in the event Queues
@@ -53,8 +52,10 @@ typedef struct
 	//! \brief An optional CAN frame
 	twai_frame_t canFrame;
 
-	//! \brief Additional params
+	//! \brief Additional parameters
 	void* parameter;
+
+	//! \brief Additional parameters length
 	uint16_t parameterLength;
 } QueueEvent_t;
 

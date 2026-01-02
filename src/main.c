@@ -1,30 +1,29 @@
 // Project includes
-#include "DataCenter.h"
 #include "FileManager.h"
-#include "Global.h"
+#include "QueueSystem.h"
 #include "SensorManager.h"
-#include "WebInterface.h"
+#include "../include/WebInterface/WebInterface.h"
 #include "can.h"
 #include "can_messages.h"
-#include "logger.h"
 #include "statemachine.h"
+#include "ConfigManager.h"
 
 // espidf includes
 #include <esp_mac.h>
 #include <esp_timer.h>
 #include <sys/dirent.h>
 #include <sys/stat.h>
-
 #include "../../esp-idf/components/json/cJSON/cJSON.h"
-#include "ConfigManager.h"
 #include "driver/gpio.h"
 #include "esp_adc/adc_oneshot.h"
+#include "esp_log.h"
 
 /*
  *	Defines
  */
 // CAN
 #define CAN_SENDER_ID 0x00
+#define AMOUNT_OF_DISPLAYS 1
 
 // Intervals
 #define READ_SENSOR_DATA_INTERVAL_MS 50
@@ -63,7 +62,10 @@ static bool g_operationModeInitialized = false;
 
 static esp_timer_handle_t g_readSensorDataTimerHandle;
 static const esp_timer_create_args_t g_readSensorDataTimerConf = {.callback = &readSensorDataISR,
-                                                                 .name = "Read Sensor Data Timer"};
+                                                                  .name = "Read Sensor Data Timer"};
+
+//! \brief Amount of connected displays. Used for assigning the COM IDs
+static uint8_t g_amountOfConnectedDisplays;
 
 
 /*
@@ -75,7 +77,7 @@ void requestUUIDsISR(void* p_arg)
 {
 	// Create the event
 	QueueEvent_t registerHwUUID;
-	registerHwUUID.command = QUEUE_REQUEST_UUID;
+	registerHwUUID.command = REQUEST_UUID;
 
 	// Increase the timer
 	g_uuidRequestCounter++;
@@ -90,7 +92,7 @@ void readSensorDataISR(void* p_arg)
 {
 	// Create the event
 	QueueEvent_t readData;
-	readData.command = QUEUE_READ_SENSOR_DATA;
+	readData.command = READ_SENSOR_DATA;
 
 	// Queue it
 	BaseType_t xHigherPriorityTaskWoken;
@@ -111,9 +113,6 @@ void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 	// Create the event queues
 	createEventQueues();
 
-	// Initialize the Data Center
-	dataCenterInit();
-
 	// Initialize the can node
 	twai_node_handle_t* canNodeHandle = initializeCanNode(GPIO_NUM_43, GPIO_NUM_2);
 	enableCanNode();
@@ -124,12 +123,9 @@ void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 	// Register the queue to the CAN bus
 	registerCanRxCbQueue(&g_mainEventQueue);
 
-	// Register the queue to the Data Center
-	registerDataCenterCbQueue(&g_mainEventQueue);
-
 	// Send a UUID Request
 	QueueEvent_t initRequest;
-	initRequest.command = QUEUE_REQUEST_UUID;
+	initRequest.command = REQUEST_UUID;
 	xQueueSend(g_mainEventQueue, &initRequest, portMAX_DELAY);
 
 	// Wait for new queue events
@@ -142,7 +138,7 @@ void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 				/*
 				 *	Restart Display
 				 */
-				case QUEUE_RESTART_DISPLAY:
+				case RESTART_DISPLAY:
 					restartDisplay(&queueEvent);
 
 					break;
@@ -150,7 +146,7 @@ void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 				/*
 				 *	We received a CAN message
 				 */
-				case QUEUE_RECEIVED_NEW_CAN_MESSAGE:
+				case RECEIVED_NEW_CAN_MESSAGE:
 					handleCanMessage(&queueEvent);
 
 					break;
@@ -159,7 +155,7 @@ void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 				/*
 				 * Request the HW UUID of all devices
 				 */
-				case QUEUE_REQUEST_UUID:
+				case REQUEST_UUID:
 					requestUUIDs(&queueEvent);
 
 					break;
@@ -167,7 +163,7 @@ void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 				/*
 				 *	Initialization of the OPERATION mode
 				 */
-				case QUEUE_INIT_OPERATION_MODE:
+				case INIT_OPERATION_MODE:
 					initOperationMode(&queueEvent);
 
 					break;
@@ -176,7 +172,7 @@ void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 				/*
 				 *	Read the sensor data
 				 */
-				case QUEUE_READ_SENSOR_DATA:
+				case READ_SENSOR_DATA:
 					readSensorData(&queueEvent);
 
 					break;
@@ -184,7 +180,7 @@ void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 				/*
 				 *	Send the sensor data
 				 */
-				case QUEUE_SENSOR_DATA_CHANGED:
+				case SENSOR_DATA_CHANGED:
 					handleSensorDataChanged(&queueEvent);
 
 					break;
@@ -192,7 +188,7 @@ void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 				/*
 				 *	Display Stati Changed
 				 */
-				case QUEUE_DISPLAY_STATI_CHANGED:
+				case DISPLAY_STATI_CHANGED:
 					handleDisplayStatiChanged(&queueEvent);
 
 					break;
@@ -211,14 +207,15 @@ void restartDisplay(const QueueEvent_t* p_queueEvent)
 {
 	// Do we have parameters?
 	if (p_queueEvent->parameterLength <= 0) {
-		loggerDebug("Not enough parameters");
+		ESP_LOGD("main", "Not enough parameters");
 
 		return;
 	}
 
 	// Create the can frame answer
 	twai_frame_t* restartFrame =
-		generateCanFrame(CAN_MSG_DISPLAY_RESTART, CAN_SENDER_ID, p_queueEvent->parameter, p_queueEvent->parameterLength);
+		generateCanFrame(CAN_MSG_DISPLAY_RESTART, CAN_SENDER_ID, p_queueEvent->parameter,
+		                 p_queueEvent->parameterLength);
 
 	// Send the frame
 	queueCanBusMessage(restartFrame, true, true);
@@ -226,7 +223,7 @@ void restartDisplay(const QueueEvent_t* p_queueEvent)
 
 void handleCanMessage(const QueueEvent_t* p_queueEvent)
 {
-	loggerDebug("Received new can message");
+	ESP_LOGD("main", "Received new can message");
 
 	// Get the frame
 	const twai_frame_t recFrame = p_queueEvent->canFrame;
@@ -244,7 +241,8 @@ void handleCanMessage(const QueueEvent_t* p_queueEvent)
 		// Get the display configuration
 		cJSON* displayConfiguration = getDisplayConfiguration();
 		if (displayConfiguration == NULL) {
-			loggerError("Couldn't handle display registration process because the display configuration isn't available!");
+			ESP_LOGE("main",
+			         "Couldn't handle display registration process because the display configuration isn't available!");
 			return;
 		}
 
@@ -326,35 +324,6 @@ void handleCanMessage(const QueueEvent_t* p_queueEvent)
 		}
 
 		/*
-		 *	Track display stati
-		 */
-		// Get all displays
-		Display_t* displays = getDisplayStatiObjects();
-		Display_t* display = NULL;
-
-		// Check if the one that connected is already being tracked
-		for (uint8_t i = 0; i < AMOUNT_OF_DISPLAYS; i++) {
-			// Does the uuid match or is it a placeholder?
-			if ((displays[i].uuid != NULL && strcmp(displays[i].uuid, formattedUUID) == 0) || displays[i].uuid == NULL) {
-				display = &displays[i];
-				break;
-			}
-		}
-
-		// Set its values
-		if (display != NULL) {
-			display->connected = true;
-			display->uuid = formattedUUID;
-			display->comId = buffer[6];
-			display->screen = buffer[7];
-			display->wifiStatus = malloc(strlen("Turned Off") + 1);
-			strcpy(display->wifiStatus, "Turned Off");
-
-			// Notify everybody that the display stati changed
-			broadcastDisplayStatiChanged();
-		}
-
-		/*
 		 *	Sending CAN frame
 		*/
 		// Create the can frame answer
@@ -364,9 +333,9 @@ void handleCanMessage(const QueueEvent_t* p_queueEvent)
 		queueCanBusMessage(frame, true, true);
 
 		// Logging
-		loggerInfo("Sending ID '%d' and screen '%d' to UUID '%d-%d-%d-%d-%d-%d'", buffer[6], buffer[7], buffer[0],
-		           buffer[1],
-		           buffer[2], buffer[3], buffer[4], buffer[5]);
+		ESP_LOGI("main", "Sending ID '%d' and screen '%d' to UUID '%d-%d-%d-%d-%d-%d'", buffer[6], buffer[7], buffer[0],
+		         buffer[1],
+		         buffer[2], buffer[3], buffer[4], buffer[5]);
 
 		/*
 		 *	Cleanup
@@ -377,19 +346,8 @@ void handleCanMessage(const QueueEvent_t* p_queueEvent)
 
 void requestUUIDs(const QueueEvent_t* p_queueEvent)
 {
-	// Did we receive all HW UUIDs?
-	bool allUUIDsReceived = true;
-	Display_t* displays = getDisplayStatiObjects();
-	for (int i = 0; i < AMOUNT_OF_DISPLAYS; i++) {
-		if (!(displays + i)->connected) {
-			// No
-			allUUIDsReceived = false;
-			break;
-		}
-	}
-
 	// Do we need to re-request?
-	if (!allUUIDsReceived) {
+	if (g_amountOfConnectedDisplays < AMOUNT_OF_DISPLAYS) {
 		// Send the request
 		sendUUIDRequest();
 
@@ -401,23 +359,10 @@ void requestUUIDs(const QueueEvent_t* p_queueEvent)
 		if (!esp_timer_is_active(g_uuidTimerHandle)) {
 			esp_timer_start_once(g_uuidTimerHandle, timeout);
 		}
-
-		// Should we switch to the operation state?
-		// if (uuidRequestCounter_ >= 10 && currState != STATE_OPERATION) {
-		//	setCurrentState(STATE_OPERATION);
-		//
-		//	// Log it
-		//	loggerInfo("Not all displays registered themselves within 2 Seconds");
-		//
-		//	// Queue the init of the operation mode
-		//	QUEUE_EVENT_T rq;
-		//	rq.command = QUEUE_INIT_OPERATION_MODE;
-		//	xQueueSend(mainEventQueue, &rq, pdMS_TO_TICKS(50));
-		//}
 	}
 	else {
 		// Logging
-		loggerInfo("All displays registered themselves");
+		ESP_LOGI("main", "All displays registered themselves");
 
 		// Delete the timer
 		esp_timer_delete(g_uuidTimerHandle);
@@ -428,7 +373,7 @@ void requestUUIDs(const QueueEvent_t* p_queueEvent)
 
 		// Queue the init of the operation mode
 		QueueEvent_t rq;
-		rq.command = QUEUE_INIT_OPERATION_MODE;
+		rq.command = INIT_OPERATION_MODE;
 		xQueueSend(g_mainEventQueue, &rq, portMAX_DELAY);
 	}
 }
@@ -442,7 +387,7 @@ void initOperationMode(const QueueEvent_t* queueEvent)
 		/*
 		 * Start the Webinterface
 		 */
-		initSucceeded &= startWebInterface(GET_FROM_CONFIG);
+		// initSucceeded &= startWebInterface(GET_FROM_CONFIG);
 
 		/*
 		 *	Start reading the sensor data
@@ -466,18 +411,12 @@ void initOperationMode(const QueueEvent_t* queueEvent)
 
 void readSensorData(const QueueEvent_t* queueEvent)
 {
-	bool dataUpdated = false;
-	dataUpdated |= sensorManagerUpdateFuelLevel();
-	dataUpdated |= sensorManagerUpdateInternalTemperature();
-	dataUpdated |= sensorManagerUpdateOilPressure();
-	dataUpdated |= sensorManagerUpdateRPM();
-	dataUpdated |= sensorManagerUpdateSpeed();
-	dataUpdated |= sensorManagerUpdateSpeed();
-
-	// Did something change?
-	if (dataUpdated) {
-		broadcastSensorDataChanged();
-	}
+	sensorManagerUpdateFuelLevel();
+	sensorManagerUpdateInternalTemperature();
+	sensorManagerUpdateOilPressure();
+	sensorManagerUpdateRPM();
+	sensorManagerUpdateSpeed();
+	sensorManagerUpdateSpeed();
 }
 
 void handleSensorDataChanged(const QueueEvent_t* queueEvent)
@@ -488,35 +427,35 @@ void handleSensorDataChanged(const QueueEvent_t* queueEvent)
 	}
 
 	// Create the buffer for the answer CAN frame
-	uint8_t* buffer = malloc(sizeof(uint8_t) * 8);
-	if (buffer == NULL) {
-		return;
-	}
-	buffer[0] = g_vehicleSpeed;
-	buffer[1] = g_vehicleRPM >> 8;
-	buffer[2] = (uint8_t)g_vehicleRPM;
-	buffer[3] = g_fuelLevelInPercent;
-	buffer[4] = g_waterTemp;
-	buffer[5] = g_oilPressure;
-	buffer[6] = g_leftIndicator;
-	buffer[7] = g_rightIndicator;
+	// uint8_t* buffer = malloc(sizeof(uint8_t) * 8);
+	// if (buffer == NULL) {
+	// 	return;
+	// }
+	// buffer[0] = g_vehicleSpeed;
+	// buffer[1] = g_vehicleRPM >> 8;
+	// buffer[2] = (uint8_t)g_vehicleRPM;
+	// buffer[3] = g_fuelLevelInPercent;
+	// buffer[4] = g_waterTemp;
+	// buffer[5] = g_oilPressure;
+	// buffer[6] = g_leftIndicator;
+	// buffer[7] = g_rightIndicator;
 
 	// Create the CAN answer frame
-	twai_frame_t* sensorDataFrame = generateCanFrame(CAN_MSG_SENSOR_DATA, CAN_SENDER_ID, buffer, 8);
+	// twai_frame_t* sensorDataFrame = generateCanFrame(CAN_MSG_SENSOR_DATA, CAN_SENDER_ID, buffer, 8);
 
 	// Send the frame
-	queueCanBusMessage(sensorDataFrame, true, true);
+	// queueCanBusMessage(sensorDataFrame, true, true);
 }
 
 void handleDisplayStatiChanged(const QueueEvent_t* queueEvent)
 {
-	// Get all displays
-	const char* jsonOutput = getAllDisplayStatiAsJSON();
-
-	// Send the data to the webserver
-	if (jsonOutput != NULL) {
-		webinterfaceSendData();
-	}
+	// // Get all displays
+	// const char* jsonOutput = getAllDisplayStatiAsJSON();
+	//
+	// // Send the data to the webserver
+	// if (jsonOutput != NULL) {
+	// 	webinterfaceSendData();
+	// }
 }
 
 /*
@@ -532,13 +471,13 @@ void sendUUIDRequest(void)
 	queueCanBusMessage(frame, true, false);
 
 	// Debug Logging
-	// loggerDebug("Sent HW UUID Request");
+	// ESP_LOGD("main", "Sent HW UUID Request");
 }
 
 void debugListAllSpiffsFiles()
 {
-	struct dirent *de;
-	DIR *dr = opendir("/config");
+	struct dirent* de;
+	DIR* dr = opendir("/config");
 	if (dr == NULL) {
 		printf("Konnte Verzeichnis nicht öffnen: %s\n", "/config");
 		return;
@@ -551,11 +490,11 @@ void debugListAllSpiffsFiles()
 
 void printDisplayConfigurationFile(const FILE* file)
 {
-	loggerDebug("--- Content of 'displays_config.json' ---");
+	ESP_LOGD("main", "--- Content of 'displays_config.json' ---");
 	char line[256];
 	while (fgets(line, sizeof(line), (FILE*)file) != NULL) {
 		printf("%s", line);
 	}
 	printf("\n");
-	loggerDebug("--- End of 'displays_config.json' ---");
+	ESP_LOGD("main", "--- End of 'displays_config.json' ---");
 }

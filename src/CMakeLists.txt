@@ -5,34 +5,34 @@ set(FILES
         "main.c"
 
         # Webinterface
-        "../include/WebInterface.h"
-        "WebInterface.c"
-        "../include/WebAPI.h"
-        "WebAPI.c"
+        "../include/WebInterface/WebInterface.h"
+        "WebInterface/WebInterface.c"
+        "../include/WebInterface/WebAPI.h"
+        "WebInterface/WebAPI.c"
 
-        # Global stuff
-        "../include/Global.h"
-        "Global.c"
-
-        # Data Center
-        "../include/DataCenter.h"
-        "DataCenter.c"
-
-        # Sensor Manager
-        "../include/SensorManager.h"
-        "SensorManager.c"
+        # Config Manager
+        "../include/ConfigManager.h"
+        "ConfigManager.c"
 
         # File Manager
         "../include/FileManager.h"
         "FileManager.c"
 
-        # File Manager
-        "../include/ConfigManager.h"
-        "ConfigManager.c"
+        # Queue System
+        "../include/QueueSystem.h"
+        "QueueSystem.c"
+
+        # Sensor Manager
+        "../include/SensorManager.h"
+        "SensorManager.c"
+
+        # Wifi
+        "../include/Wifi.h"
+        "Wifi.c"
 )
 
 idf_component_register(SRCS ${FILES}
-        PRIV_REQUIRES src driver spi_flash esp_psram esp_adc fatfs spiffs esp_wifi esp_http_server nvs_flash can logger esp_timer statemachine
+        PRIV_REQUIRES src driver spi_flash esp_psram esp_adc fatfs spiffs esp_wifi esp_http_server nvs_flash can esp_timer statemachine
         INCLUDE_DIRS "../include" "."
         EMBED_TXTFILES  "" # For Files
         EMBED_FILES "") # For images

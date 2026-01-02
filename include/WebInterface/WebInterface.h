@@ -1,5 +1,7 @@
 #pragma once
 
+#ifndef DISABLE_WEBINTERFACE
+
 // Project includes
 #include "WebAPI.h"
 
@@ -22,3 +24,5 @@ typedef enum
  */
 bool startWebInterface(WIFI_TYPE wifiType);
 void webinterfaceSendData(void);
+
+#endif

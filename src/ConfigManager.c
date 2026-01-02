@@ -7,6 +7,9 @@
 #include <stdio.h>
 #include <string.h>
 
+// espidf includes
+#include "esp_log.h"
+
 /*
  *	Private defines
  */
@@ -33,6 +36,7 @@ static bool fileToJson(const char* p_pfileName, char* p_pbuffer, const uint16_t 
 
 	// Did that work?
 	if (file == NULL) {
+		ESP_LOGE("ConfigManager", "Couldn't open file %s on partition %d", p_pfileName, CONFIG_PARTITION);
 		return false;
 	}
 
@@ -42,6 +46,7 @@ static bool fileToJson(const char* p_pfileName, char* p_pbuffer, const uint16_t 
 	// Read everything from the file
 	if (fread(p_pbuffer, 1, bufferLen, file) == 0) {
 		fclose(file);
+		ESP_LOGE("ConfigManager", "Couldn't read from file %s on partition %d", p_pfileName, CONFIG_PARTITION);
 		return false;
 	}
 	fclose(file);
@@ -49,6 +54,7 @@ static bool fileToJson(const char* p_pfileName, char* p_pbuffer, const uint16_t 
 	// Parse it to JSON
 	*p_proot = cJSON_Parse(p_pbuffer);
 	if (*p_proot == NULL) {
+		ESP_LOGE("ConfigManager", "Couldn't parse the content of file %s on partition %d to JSON", p_pfileName, CONFIG_PARTITION);
 		return false;
 	}
 	return true;
@@ -61,6 +67,7 @@ static bool jsonToFile(const cJSON* p_proot, const char* p_pfileName)
 
 	// Did that work?
 	if (file == NULL) {
+		ESP_LOGE("ConfigManager", "Couldn't open file %s on partition %d", p_pfileName, CONFIG_PARTITION);
 		return false;
 	}
 
@@ -74,6 +81,7 @@ static bool jsonToFile(const cJSON* p_proot, const char* p_pfileName)
 
 	// Did it fail?
 	if (result <= 0) {
+		ESP_LOGE("ConfigManager", "Couldn't write the JSON configuration to file %s on partition %d", p_pfileName, CONFIG_PARTITION);
 		return false;
 	}
 	return true;
@@ -93,6 +101,7 @@ void configManagerInit()
 
 	// Load the default config if it failed
 	if (!g_displayConfigAvailable) {
+		ESP_LOGW("ConfigManager", "Couldn't load display config. Loading default config.");
 		g_displayConfigAvailable = fileToJson(DEFAULT_CONFIG_FOLDER "/" DISPLAY_CONFIG_NAME, g_displayConfigurationBuffer,
 		                                     MAX_CONFIG_SIZE_B, &g_displayConfigurationRoot);
 	}
@@ -106,6 +115,7 @@ void configManagerInit()
 
 	// Load the default config if it failed
 	if (!g_wifiConfigAvailable) {
+		ESP_LOGW("ConfigManager", "Couldn't load wifi config. Loading default config.");
 		g_wifiConfigAvailable = fileToJson(DEFAULT_CONFIG_FOLDER "/" WIFI_CONFIG_NAME, g_wifiConfigurationBuffer,
 		                                  MAX_CONFIG_SIZE_B, &g_wifiConfigurationRoot);
 	}

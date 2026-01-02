@@ -1,6 +1,6 @@
 // Project includes
-#include "Global.h"
-#include "logger.h"
+#include "QueueSystem.h"
+#include "esp_log.h"
 
 QueueHandle_t g_updateEventQueue = NULL;
 
@@ -11,7 +11,7 @@ bool createEventQueues()
 	// Create the event Queue for the Update Handler
 	g_updateEventQueue = xQueueCreate(20, sizeof(QueueEvent_t));
 	if (g_updateEventQueue == NULL) {
-		loggerCritical("Couldn't create updateEventQueue");
+		ESP_LOGE("QueueSystem", "Couldn't create updateEventQueue"); // NOLINT
 
 		return false;
 	}
@@ -19,14 +19,14 @@ bool createEventQueues()
 	// Create the main Queue for the GUI
 	g_mainEventQueue = xQueueCreate(5, sizeof(QueueEvent_t));
 	if (g_mainEventQueue == NULL) {
-		loggerCritical("Couldn't create mainEventQueue");
+		ESP_LOGE("QueueSystem", "Couldn't create mainEventQueue");
 
 		return false;
 	}
 
 
 	// Logging
-	loggerInfo("Created event queues");
+	ESP_LOGI("QueueSystem", "Created event queues");
 
 	return true;
 }

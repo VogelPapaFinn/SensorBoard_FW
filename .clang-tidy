@@ -45,6 +45,7 @@ CheckOptions:
   readability-magic-numbers.IgnoredFloatingPointValues: '0.0;1.0'
 
   # Komplexität
+  readability-function-cognitive-complexity.IgnoreMacros: true
   readability-function-cognitive-complexity.Threshold: 25
   readability-function-size.LineThreshold: 100
 

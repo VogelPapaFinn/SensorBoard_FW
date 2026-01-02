@@ -1,9 +1,11 @@
+#ifndef DISABLE_WEBINTERFACE
+
 // Project includes
 #include "ConfigManager.h"
 #include "DataCenter.h"
 #include "FileManager.h"
 #include "logger.h"
-#include "WebInterface.h"
+#include "../../include/WebInterface/WebInterface.h"
 
 // espidf includes
 #include <esp_http_server.h>
@@ -453,3 +455,5 @@ bool startWebInterface(WIFI_TYPE wifiType)
 	success &= httpd_register_uri_handler(g_httpdHandle, &g_webinterfaceHandlerURI);
 	return success;
 }
+
+#endif

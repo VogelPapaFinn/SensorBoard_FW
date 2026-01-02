@@ -1,8 +1,5 @@
 #include "SensorManager.h"
 
-// Project includes
-#include "logger.h"
-
 // C includes
 #include <math.h>
 
@@ -11,6 +8,7 @@
 #include <driver/pulse_cnt.h>
 #include <esp_adc/adc_oneshot.h>
 #include <esp_timer.h>
+#include <esp_log.h>
 
 // The ADC handles
 adc_oneshot_unit_handle_t g_adc1Handle;
@@ -201,7 +199,7 @@ bool sensorManagerInit(void)
 		g_initAdc2Failed = true;
 
 		// Logging
-		loggerWarn("Failed to initialize ADC2!");
+		ESP_LOGW("SensorManager", "Failed to initialize ADC2!");
 
 		// Initialization failed
 		return false;
@@ -234,7 +232,7 @@ bool sensorManagerInit(void)
 	// Create calibration curve fitting
 	if (adc_cali_create_scheme_curve_fitting(&oilCaliConfig, &g_adc2OilCalibHandle) != ESP_OK) {
 		// Logging
-		loggerError("'adc_cali_create_scheme_curve_fitting' for the oil pressure channel FAILED");
+		ESP_LOGE("SensorManager", "'adc_cali_create_scheme_curve_fitting' for the oil pressure channel FAILED");
 	}
 
 	/*
@@ -264,7 +262,7 @@ bool sensorManagerInit(void)
 	// Create calibration curve fitting
 	if (adc_cali_create_scheme_curve_fitting(&fuelCaliConfig, &g_adc2FuelCalibHandle) != ESP_OK) {
 		// Logging
-		loggerError("'adc_cali_create_scheme_curve_fitting' for the fuel level channel FAILED");
+		ESP_LOGE("SensorManager", "'adc_cali_create_scheme_curve_fitting' for the fuel level channel FAILED");
 	}
 
 	/*
@@ -294,7 +292,7 @@ bool sensorManagerInit(void)
 	// Create calibration curve fitting
 	if (adc_cali_create_scheme_curve_fitting(&waterCaliConfig, &g_adc2WaterCalibHandle) != ESP_OK) {
 		// Logging
-		loggerError("'adc_cali_create_scheme_curve_fitting' for the water temperature channel FAILED");
+		ESP_LOGE("SensorManager", "'adc_cali_create_scheme_curve_fitting' for the water temperature channel FAILED");
 	}
 
 	/*
@@ -309,7 +307,7 @@ bool sensorManagerInit(void)
 	// Install ISR service
 	if (gpio_install_isr_service(ESP_INTR_FLAG_IRAM) != ESP_OK) {
 		// Logging
-		loggerError("Couldn't install the ISR service. Speed and RPM are unavailable!");
+		ESP_LOGE("SensorManager", "Couldn't install the ISR service. Speed and RPM are unavailable!");
 	}
 
 	// Activate the ISR for measuring the frequency for the speed
@@ -322,7 +320,7 @@ bool sensorManagerInit(void)
 		g_speedIsrActive = false;
 
 		// Logging
-		loggerError("Failed to enable the speed ISR!");
+		ESP_LOGE("SensorManager", "Failed to enable the speed ISR!");
 	}
 
 	/*
@@ -344,7 +342,7 @@ bool sensorManagerInit(void)
 		g_rpmIsrActive = false;
 
 		// Logging
-		loggerError("Failed to enable the rpm ISR!");
+		ESP_LOGE("SensorManager", "Failed to enable the rpm ISR!");
 	}
 
 	/*
@@ -362,7 +360,7 @@ bool sensorManagerInit(void)
 	};
 	if (adc_oneshot_new_unit(&adc1InitConfig, &g_adc1Handle) != ESP_OK) {
 		// Logging
-		loggerWarn("Failed to initialize ADC1!");
+		ESP_LOGW("SensorManager", "Failed to initialize ADC1!");
 	}
 
 	// Create the channel config
@@ -384,7 +382,7 @@ bool sensorManagerInit(void)
 	// Create calibration curve fitting
 	if (adc_cali_create_scheme_curve_fitting(&intTempCaliConfig, &g_adc2IntTempCalibHandle) != ESP_OK) {
 		// Logging
-		loggerError("'adc_cali_create_scheme_curve_fitting' for the internal temperature sensor channel FAILED");
+		ESP_LOGE("SensorManager", "'adc_cali_create_scheme_curve_fitting' for the internal temperature sensor channel FAILED");
 	}
 
 	return success;
@@ -402,13 +400,13 @@ bool sensorManagerUpdateOilPressure(void)
 	// Try to read from the ADC
 	if (adc_oneshot_read(g_adc2Handle, ADC_CHANNEL_OIL_PRESSURE, &rawAdcValue) != ESP_OK) {
 		// Log that it failed
-		loggerWarn("Failed to read the oil pressure from the ADC!");
+		ESP_LOGW("SensorManager", "Failed to read the oil pressure from the ADC!");
 	}
 
 	// Try to convert the ADC value to a voltage
 	if (adc_cali_raw_to_voltage(g_adc2OilCalibHandle, rawAdcValue, &voltage) != ESP_OK) {
 		// Log that it failed
-		loggerWarn("Failed to calculate the voltage from the ADC value!");
+		ESP_LOGW("SensorManager", "Failed to calculate the voltage from the ADC value!");
 	}
 
 	// Check the thresholds
@@ -418,7 +416,7 @@ bool sensorManagerUpdateOilPressure(void)
 	// Did it change?
 	if (oldOilPressureValue != g_oilPressure) {
 		// Logging
-		loggerDebug("Oil pressure changed! From: '%d' to '%d'", oldOilPressureValue, g_oilPressure);
+		ESP_LOGD("SensorManager", "Oil pressure changed! From: '%d' to '%d'", oldOilPressureValue, g_oilPressure);
 
 		return true;
 	}
@@ -437,13 +435,13 @@ bool sensorManagerUpdateFuelLevel(void)
 	// Try to read from the ADC
 	if (adc_oneshot_read(g_adc2Handle, ADC_CHANNEL_FUEL_LEVEL, &rawAdcValue) != ESP_OK) {
 		// Log that it failed
-		loggerWarn("Failed to read the fuel level from the ADC!");
+		ESP_LOGW("SensorManager", "Failed to read the fuel level from the ADC!");
 	}
 
 	// Try to convert the ADC value to a voltage
 	if (adc_cali_raw_to_voltage(g_adc2FuelCalibHandle, rawAdcValue, &voltage) != ESP_OK) {
 		// Log that it failed
-		loggerWarn("Failed to calculate the voltage from the ADC value!");
+		ESP_LOGW("SensorManager", "Failed to calculate the voltage from the ADC value!");
 	}
 
 	// Calculate resistance
@@ -456,7 +454,7 @@ bool sensorManagerUpdateFuelLevel(void)
 	// Did it change?
 	if (oldFuelLevelValue != g_fuelLevelInPercent) {
 		// Logging
-		loggerDebug("Fuel level changed! From: '%d percent' to '%d percent'", oldFuelLevelValue, g_fuelLevelInPercent);
+		ESP_LOGD("SensorManager", "Fuel level changed! From: '%d percent' to '%d percent'", oldFuelLevelValue, g_fuelLevelInPercent);
 
 		return true;
 	}
@@ -475,13 +473,13 @@ bool sensorManagerUpdateWaterTemperature(void)
 	// Try to read from the ADC
 	if (adc_oneshot_read(g_adc2Handle, ADC_CHANNEL_WATER_TEMPERATURE, &rawAdcValue) != ESP_OK) {
 		// Log that it failed
-		loggerWarn("Failed to read the water temperature from the ADC!");
+		ESP_LOGW("SensorManager", "Failed to read the water temperature from the ADC!");
 	}
 
 	// Try to convert the ADC value to a voltage
 	if (adc_cali_raw_to_voltage(g_adc2WaterCalibHandle, rawAdcValue, &voltage) != ESP_OK) {
 		// Log that it failed
-		loggerWarn("Failed to calculate the voltage from the ADC value!");
+		ESP_LOGW("SensorManager", "Failed to calculate the voltage from the ADC value!");
 	}
 
 	// Calculate resistance
@@ -494,7 +492,7 @@ bool sensorManagerUpdateWaterTemperature(void)
 	// Did it change?
 	if (oldWaterTemperatureValue != (float)g_waterTemp) {
 		// Logging
-		loggerDebug("Water temperature changed! From: '%d °C' to '%d °C'", oldWaterTemperatureValue, g_waterTemp);
+		ESP_LOGD("SensorManager", "Water temperature changed! From: '%d °C' to '%d °C'", oldWaterTemperatureValue, g_waterTemp);
 
 		return true;
 	}
@@ -531,7 +529,7 @@ bool sensorManagerUpdateSpeed(void)
 
 	if (oldSpeed != g_vehicleSpeed) {
 		// Logging
-		loggerDebug("Speed changed! From: '%d kmh' to '%d kmh'", oldSpeed, g_vehicleSpeed);
+		ESP_LOGD("SensorManager", "Speed changed! From: '%d kmh' to '%d kmh'", oldSpeed, g_vehicleSpeed);
 
 		return true;
 	}
@@ -568,7 +566,7 @@ bool sensorManagerUpdateRPM(void)
 
 	if (oldRpm != g_vehicleRPM) {
 		// Logging
-		loggerDebug("RPM changed! From: '%d RPM' to '%d RPM'", oldRpm, g_vehicleRPM);
+		ESP_LOGD("SensorManager", "RPM changed! From: '%d RPM' to '%d RPM'", oldRpm, g_vehicleRPM);
 
 		return true;
 	}
@@ -583,7 +581,7 @@ bool sensorManagerUpdateInternalTemperature(void)
 	// Try to get a reading from the ADC
 	if (adc_oneshot_read(g_adc1Handle, ADC_CHANNEL_INT_TEMPERATURE, &g_intTempRawAdcValue) != ESP_OK) {
 		// Logging
-		loggerError("Failed to read the internal temperature from the ADC!");
+		ESP_LOGE("SensorManager", "Failed to read the internal temperature from the ADC!");
 	}
 
 	// Convert the adc raw value to a voltage (mV)

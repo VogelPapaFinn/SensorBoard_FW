@@ -1,7 +1,4 @@
-#include "FileManager.h"
-
-// Project includes
-#include "logger.h"
+#include "FileManager.h"x
 
 // C includes
 #include <string.h>
@@ -12,6 +9,7 @@
 #include "driver/sdmmc_host.h"
 #include "esp_spiffs.h"
 #include "esp_vfs_fat.h"
+#include "esp_log.h"
 
 /*
  *	Private defines
@@ -60,7 +58,7 @@ static char* buildFullPath(const char* p_path, const int location)
 		// Is the config partition mounted?
 		if (!g_configPartitionMounted) {
 			// Logging
-			loggerError("Config partition not mounted");
+			ESP_LOGE("FileManager", "Config partition not mounted");
 
 			return NULL;
 		}
@@ -69,7 +67,8 @@ static char* buildFullPath(const char* p_path, const int location)
 		const char partition[] = "/config/";
 		const uint8_t length = strlen(partition) + strlen(p_path) + 1;
 		char* fullPath = malloc(length);
-		if (fullPath == NULL) return NULL;
+		if (fullPath == NULL)
+			return NULL;
 
 		// Then build the full path and return it
 		snprintf(fullPath, length, "%s%s", partition, p_path);
@@ -79,7 +78,7 @@ static char* buildFullPath(const char* p_path, const int location)
 		// Is the data partition mounted?
 		if (!g_dataPartitionMounted) {
 			// Logging
-			loggerError("Data partition not mounted");
+			ESP_LOGE("FileManager", "Data partition not mounted");
 
 			return NULL;
 		}
@@ -88,7 +87,8 @@ static char* buildFullPath(const char* p_path, const int location)
 		const char partition[] = "/data/";
 		const uint8_t length = strlen(partition) + strlen(p_path) + 1;
 		char* fullPath = malloc(length);
-		if (fullPath == NULL) return NULL;
+		if (fullPath == NULL)
+			return NULL;
 
 		// Then build the full path and return it
 		snprintf(fullPath, length, "%s%s", partition, p_path);
@@ -98,7 +98,7 @@ static char* buildFullPath(const char* p_path, const int location)
 		// Is the SD Card mounted?
 		if (!g_sdCardMounted) {
 			// Logging
-			loggerError("SD Card not mounted");
+			ESP_LOGW("FileManager", "SD Card not mounted");
 
 			// No so stop here!
 			return NULL;
@@ -108,7 +108,8 @@ static char* buildFullPath(const char* p_path, const int location)
 		const char partition[] = "/sdcard/";
 		const uint8_t length = strlen(partition) + strlen(p_path) + 1;
 		char* fullPath = malloc(length);
-		if (fullPath == NULL) return NULL;
+		if (fullPath == NULL)
+			return NULL;
 
 		// Then build the full path and return it
 		snprintf(fullPath, length, "%s%s", partition, p_path);
@@ -172,11 +173,11 @@ bool fileManagerInit(void)
 		g_sdCardMounted = true;
 
 		// Logging
-		loggerInfo("Mounted SD card successfully");
+		ESP_LOGI("FileManager", "Mounted SD card successfully");
 	}
 	else {
 		// Logging
-		loggerError("Mounting SD card failed with error");
+		ESP_LOGW("FileManager", "Mounting SD card failed with error");
 	}
 
 	/*
@@ -199,13 +200,13 @@ bool fileManagerInit(void)
 		g_dataPartitionMounted = true;
 
 		// Logging
-		loggerInfo("Mounted data partition successfully");
+		ESP_LOGI("FileManager", "Mounted data partition successfully");
 
 		//esp_spiffs_format(NULL);
 	}
 	else {
 		// Logging
-		loggerError("Mounting data partition failed");
+		ESP_LOGE("FileManager", "Mounting data partition failed");
 	}
 	/*
 	 * Initialize config partition
@@ -226,13 +227,13 @@ bool fileManagerInit(void)
 		g_configPartitionMounted = true;
 
 		// Logging
-		loggerInfo("Mounted config partition successfully");
+		ESP_LOGE("FileManager", "Mounted config partition successfully");
 
 		//esp_spiffs_format(NULL);
 	}
 	else {
 		// Logging
-		loggerError("Mounting config partition failed");
+		ESP_LOGE("FileManager", "Mounting config partition failed");
 	}
 
 
@@ -253,7 +254,8 @@ bool fileManagerCreateFile(const char* p_path, const Location_t location)
 
 	// For whatever reason fopen crashes with test.txt. I have absolutely no clue why but it costed me quite a few
 	// hours until I found the crashes are caused by this :C
-	if (strcmp(p_path, "test.txt") == 0) return false;
+	if (strcmp(p_path, "test.txt") == 0)
+		return false;
 
 	// If the file does not yet exist
 	if (!fileManagerDoesFileExists(p_path, location)) {
@@ -263,7 +265,7 @@ bool fileManagerCreateFile(const char* p_path, const Location_t location)
 		// Was it successful?
 		if (file == NULL) {
 			// Logging
-			loggerError("Failed creating file %s", fullPath);
+			ESP_LOGE("FileManager", "Failed creating file %s", fullPath);
 
 			// Free the fullPath
 			free(fullPath);
@@ -319,7 +321,7 @@ FILE* fileManagerOpenFile(const char* p_path, const char* p_mode, const Location
 	// Was it successful?
 	if (file == NULL) {
 		// Logging
-		loggerError("Failed to open file. Path: %s ; Mode: %s", fullPath, p_mode);
+		ESP_LOGE("FileManager", "Failed to open file. Path: %s ; Mode: %s", fullPath, p_mode);
 
 		// Free the fullPath
 		free(fullPath);
@@ -329,7 +331,7 @@ FILE* fileManagerOpenFile(const char* p_path, const char* p_mode, const Location
 	}
 
 	// Logging
-	loggerDebug("Opened file %s", fullPath);
+	ESP_LOGD("FileManager", "Opened file %s", fullPath);
 
 	// Yes, free the path and return the file
 	free(fullPath);
@@ -350,11 +352,11 @@ bool fileManagerDeleteFile(const char* p_path, const Location_t location)
 	const bool result = !remove(fullPath); // 0 -> success ;  1 -> error
 	if (result) {
 		// Logging
-		loggerInfo("Deleted file: %s", fullPath);
+		ESP_LOGI("FileManager", "Deleted file: %s", fullPath);
 	}
 	else {
 		// Logging
-		loggerWarn("Failed deleting file: %s", fullPath);
+		ESP_LOGW("FileManager", "Failed deleting file: %s", fullPath);
 	}
 
 	// Free the path
@@ -401,7 +403,7 @@ bool fileManagerCreateDir(const char* p_path)
 	// Did it fail?
 	if (!result) {
 		// Logging
-		loggerWarn("Failed to create directory: %s", fullPath);
+		ESP_LOGW("FileManager", "Failed to create directory: %s", fullPath);
 	}
 
 	// Free fullPath
@@ -426,7 +428,7 @@ bool fileManagerDeleteDir(const char* p_path)
 	// Did it fail?
 	if (!result) {
 		// Logging
-		loggerWarn("Failed to delete directory: %s", fullPath);
+		ESP_LOGW("FileManager", "Failed to delete directory: %s", fullPath);
 	}
 
 	// Free fullPath
@@ -474,15 +476,15 @@ void fileManagerTest()
 
 	// Create a directory "location" on the SD Card
 	if (fileManagerCreateDir("location")) {
-		loggerInfo("The location on the SD Card was created successfully!");
+		ESP_LOGI("FileManager", "The location on the SD Card was created successfully!");
 	}
 
 	// Check if these locations exists on the SD Card
 	if (fileManagerDoesDirectoryExist("location")) {
-		loggerInfo("The location exists on the SD Card!");
+		ESP_LOGI("FileManager", "The location exists on the SD Card!");
 	}
 	else {
-		loggerWarn("The location does not exist on the SD Card!");
+		ESP_LOGW("FileManager", "The location does not exist on the SD Card!");
 	}
 
 	// Reset the file pointers
@@ -495,16 +497,18 @@ void fileManagerTest()
 	}
 
 	// Close the file again
-	fclose(file1);
+	if (file1 != NULL) {
+		fclose(file1);
+	}
 
 	// Then delete it
 	fileManagerDeleteFile("location/hello.txt", SD_CARD);
 
 	// Then delete the directory
 	if (fileManagerDeleteDir("location")) {
-		loggerInfo("Successfully deleted directory on SD Card!");
+		ESP_LOGI("FileManager", "Successfully deleted directory on SD Card!");
 	}
 	else {
-		loggerWarn("Failed to delete the directory on the SD Card");
+		ESP_LOGW("FileManager", "Failed to delete the directory on the SD Card");
 	}
 }

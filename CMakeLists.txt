@@ -3,6 +3,10 @@
 cmake_minimum_required(VERSION 3.16)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Deactivate the Webinterface
+add_compile_definitions(DISABLE_WEBINTERFACE)
+
 set(EXTRA_COMPONENT_DIRS "src/" "../components/")
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(SensorBoard)
