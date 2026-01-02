@@ -21,6 +21,10 @@
 /*
  *	Defines
  */
+// Config file
+#define DISPLAY_CONFIG_NAME "displays_config.json"
+#define WIFI_CONFIG_NAME "wifi_config.json"
+
 // CAN
 #define CAN_SENDER_ID 0x00
 #define AMOUNT_OF_DISPLAYS 1
@@ -42,14 +46,20 @@ void handleDisplayStatiChanged(const QueueEvent_t* p_queueEvent);
 
 void requestUUIDsISR(void* p_arg);
 void readSensorDataISR(void* p_arg);
-
 void sendUUIDRequest(void);
-
-void IRAM_ATTR speedISR();
-void IRAM_ATTR rpmISR();
 
 void debugListAllSpiffsFiles();
 void printDisplayConfigurationFile(const FILE* p_file);
+
+/*
+ *	Private typedefs
+ */
+//! \brief A typedef enum indicating the state we are in
+typedef enum
+{
+	STATE_INIT,
+	STATE_OPERATION,
+} State_t;
 
 /*
  *	Private Variables
@@ -66,7 +76,6 @@ static const esp_timer_create_args_t g_readSensorDataTimerConf = {.callback = &r
 
 //! \brief Amount of connected displays. Used for assigning the COM IDs
 static uint8_t g_amountOfConnectedDisplays;
-
 
 /*
  *	Interrupt Service Routines
@@ -107,9 +116,6 @@ void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 	// Initialize the File Manager
 	fileManagerInit();
 
-	// Initialize the Config Manager
-	configManagerInit();
-
 	// Create the event queues
 	createEventQueues();
 
@@ -122,6 +128,9 @@ void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 
 	// Register the queue to the CAN bus
 	registerCanRxCbQueue(&g_mainEventQueue);
+
+	// Load the display config
+	loadConfigFile(DISPLAY_CONFIG_NAME, DISPLAY_CONFIG);
 
 	// Send a UUID Request
 	QueueEvent_t initRequest;
@@ -239,7 +248,7 @@ void handleCanMessage(const QueueEvent_t* p_queueEvent)
 		         recFrame.buffer[2], recFrame.buffer[1], recFrame.buffer[0]);
 
 		// Get the display configuration
-		cJSON* displayConfiguration = getDisplayConfiguration();
+		cJSON* displayConfiguration = getConfig(DISPLAY_CONFIG);
 		if (displayConfiguration == NULL) {
 			ESP_LOGE("main",
 			         "Couldn't handle display registration process because the display configuration isn't available!");
@@ -320,7 +329,7 @@ void handleCanMessage(const QueueEvent_t* p_queueEvent)
 			cJSON_AddItemToArray(displayConfigurationsArray, configuration);
 
 			// Write the changes to the file
-			writeDisplayConfigurationToFile();
+			writeConfigToFile(DISPLAY_CONFIG);
 		}
 
 		/*
@@ -378,7 +387,7 @@ void requestUUIDs(const QueueEvent_t* p_queueEvent)
 	}
 }
 
-void initOperationMode(const QueueEvent_t* queueEvent)
+void initOperationMode(const QueueEvent_t* p_queueEvent)
 {
 	// Are we already in the OPERATION mode but not yet initialized?
 	if (getCurrentState() == STATE_OPERATION && g_operationModeInitialized == false) {
@@ -409,7 +418,7 @@ void initOperationMode(const QueueEvent_t* queueEvent)
 	}
 }
 
-void readSensorData(const QueueEvent_t* queueEvent)
+void readSensorData(const QueueEvent_t* p_queueEvent)
 {
 	sensorManagerUpdateFuelLevel();
 	sensorManagerUpdateInternalTemperature();
@@ -419,7 +428,7 @@ void readSensorData(const QueueEvent_t* queueEvent)
 	sensorManagerUpdateSpeed();
 }
 
-void handleSensorDataChanged(const QueueEvent_t* queueEvent)
+void handleSensorDataChanged(const QueueEvent_t* p_queueEvent)
 {
 	// Are we successfully initialize?
 	if (!g_operationModeInitialized) {
@@ -447,7 +456,7 @@ void handleSensorDataChanged(const QueueEvent_t* queueEvent)
 	// queueCanBusMessage(sensorDataFrame, true, true);
 }
 
-void handleDisplayStatiChanged(const QueueEvent_t* queueEvent)
+void handleDisplayStatiChanged(const QueueEvent_t* p_queueEvent)
 {
 	// // Get all displays
 	// const char* jsonOutput = getAllDisplayStatiAsJSON();

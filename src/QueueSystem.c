@@ -2,10 +2,15 @@
 #include "QueueSystem.h"
 #include "esp_log.h"
 
+/*
+ *	Global variables
+ */
 QueueHandle_t g_updateEventQueue = NULL;
-
 QueueHandle_t g_mainEventQueue = NULL;
 
+/*
+ *	Public functions
+ */
 bool createEventQueues()
 {
 	// Create the event Queue for the Update Handler

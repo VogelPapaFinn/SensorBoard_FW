@@ -20,12 +20,6 @@ extern QueueHandle_t g_updateEventQueue;
 //! \brief The Queue used to send events to the main application (main.c)
 extern QueueHandle_t g_mainEventQueue;
 
-typedef enum
-{
-	STATE_INIT,
-	STATE_OPERATION,
-} State_t;
-
 //! \brief A typedef enum that contains commands for all Queues
 typedef enum
 {
