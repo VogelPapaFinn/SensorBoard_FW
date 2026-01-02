@@ -12,66 +12,66 @@
  */
 
 //! \brief A list of FreeRTOS Queues that should be notified once the data changes
-static QueueHandle_t** queuesToNotify_ = NULL;
+static QueueHandle_t** g_queuesToNotify = NULL;
 
 //! \brief The amount of registered FreeRTOS queue handles
-static uint8_t amountOfQueuesToNotifyReceived_ = 0;
+static uint8_t g_amountOfQueuesToNotifyReceived = 0;
 
 //! \brief Array which holds the data of the displays
-Display_t displays_[AMOUNT_OF_DISPLAYS];
+Display_t g_displays[AMOUNT_OF_DISPLAYS];
 
 /*
  *	Private Functions
  */
 
-void broadcast(QUEUE_EVENT_T event)
+void broadcast(QueueEvent_t event)
 {
 	// Notify all queues
-	for (uint8_t i = 0; i < amountOfQueuesToNotifyReceived_; i++) {
-		xQueueSend(*queuesToNotify_[i], &event, portMAX_DELAY);
+	for (uint8_t i = 0; i < g_amountOfQueuesToNotifyReceived; i++) {
+		xQueueSend(*g_queuesToNotify[i], &event, portMAX_DELAY);
 	}
 }
 
 /*
  *	External Variables
  */
-uint8_t amountOfConnectedDisplays = 0;
+uint8_t g_amountOfConnectedDisplays = 0;
 
 /*
  *	Public Functions
  */
 void dataCenterInit()
 {
-	amountOfConnectedDisplays = 0;
+	g_amountOfConnectedDisplays = 0;
 
 	// Initialize all displays
 	for (uint8_t i = 0; i < AMOUNT_OF_DISPLAYS; i++) {
-		displays_[i].connected = false;
-		displays_[i].firmwareVersion = NULL;
-		displays_[i].uuid = NULL;
-		displays_[i].comId = 255;
-		displays_[i].wifiStatus = NULL;
+		g_displays[i].connected = false;
+		g_displays[i].firmwareVersion = NULL;
+		g_displays[i].uuid = NULL;
+		g_displays[i].comId = 255;
+		g_displays[i].wifiStatus = NULL;
 	}
 }
 
-bool registerDataCenterCbQueue(QueueHandle_t* queueHandle)
+bool registerDataCenterCbQueue(QueueHandle_t* p_queueHandle)
 {
 	// Make the array larger
-	const void* newAddr = realloc(queuesToNotify_, sizeof(QueueHandle_t*) * (amountOfQueuesToNotifyReceived_ + 1));
+	const void* newAddr = realloc((void*)g_queuesToNotify, sizeof(QueueHandle_t*) * (g_amountOfQueuesToNotifyReceived + 1));
 
 	// Did it work?
 	if (newAddr != NULL) {
-		queuesToNotify_ = (QueueHandle_t**)newAddr;
+		g_queuesToNotify = (QueueHandle_t**)newAddr;
 	}
 	else {
 		return false;
 	}
 
 	// Increase the counter
-	amountOfQueuesToNotifyReceived_++;
+	g_amountOfQueuesToNotifyReceived++;
 
 	// Then save the task handle
-	queuesToNotify_[amountOfQueuesToNotifyReceived_ - 1] = queueHandle;
+	g_queuesToNotify[g_amountOfQueuesToNotifyReceived - 1] = p_queueHandle;
 
 	return true;
 }
@@ -79,7 +79,7 @@ bool registerDataCenterCbQueue(QueueHandle_t* queueHandle)
 void broadcastSensorDataChanged()
 {
 	// Build the event
-	QUEUE_EVENT_T event;
+	QueueEvent_t event;
 	event.command = QUEUE_SENSOR_DATA_CHANGED;
 
 	// Notify everybody
@@ -89,7 +89,7 @@ void broadcastSensorDataChanged()
 void broadcastDisplayStatiChanged()
 {
 	// Build the event
-	QUEUE_EVENT_T event;
+	QueueEvent_t event;
 	event.command = QUEUE_DISPLAY_STATI_CHANGED;
 
 	// Notify everybody
@@ -98,7 +98,7 @@ void broadcastDisplayStatiChanged()
 
 Display_t* getDisplayStatiObjects()
 {
-	return displays_;
+	return g_displays;
 }
 
 char* getAllDisplayStatiAsJSON(void)
@@ -111,11 +111,11 @@ char* getAllDisplayStatiAsJSON(void)
 	cJSON* displays = cJSON_AddArrayToObject(rootJson, "displays");
 	for (uint8_t i = 0; i < AMOUNT_OF_DISPLAYS; i++) {
 		cJSON* display = cJSON_CreateObject();
-		cJSON_AddBoolToObject(display, "connected", displays_[i].connected);
-		cJSON_AddStringToObject(display, "firmware", displays_[i].firmwareVersion);
-		cJSON_AddStringToObject(display, "uuid", displays_[i].uuid);
-		cJSON_AddNumberToObject(display, "com_id", displays_[i].comId);
-		cJSON_AddStringToObject(display, "wifi", displays_[i].wifiStatus);
+		cJSON_AddBoolToObject(display, "connected", g_displays[i].connected);
+		cJSON_AddStringToObject(display, "firmware", g_displays[i].firmwareVersion);
+		cJSON_AddStringToObject(display, "uuid", g_displays[i].uuid);
+		cJSON_AddNumberToObject(display, "com_id", g_displays[i].comId);
+		cJSON_AddStringToObject(display, "wifi", g_displays[i].wifiStatus);
 		cJSON_AddItemToArray(displays, display);
 	}
 

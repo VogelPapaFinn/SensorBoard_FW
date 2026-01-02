@@ -15,8 +15,8 @@
 #include <sys/dirent.h>
 #include <sys/stat.h>
 
-#include "ConfigManager.h"
 #include "../../esp-idf/components/json/cJSON/cJSON.h"
+#include "ConfigManager.h"
 #include "driver/gpio.h"
 #include "esp_adc/adc_oneshot.h"
 
@@ -33,16 +33,16 @@
 /*
  *	Prototypes
  */
-void restartDisplay(const QUEUE_EVENT_T* queueEvent);
-void handleCanMessage(const QUEUE_EVENT_T* queueEvent);
-void requestUUIDs(const QUEUE_EVENT_T* queueEvent);
-void initOperationMode(const QUEUE_EVENT_T* queueEvent);
-void readSensorData(const QUEUE_EVENT_T* queueEvent);
-void handleSensorDataChanged(const QUEUE_EVENT_T* queueEvent);
-void handleDisplayStatiChanged(const QUEUE_EVENT_T* queueEvent);
+void restartDisplay(const QueueEvent_t* p_queueEvent);
+void handleCanMessage(const QueueEvent_t* p_queueEvent);
+void requestUUIDs(const QueueEvent_t* p_queueEvent);
+void initOperationMode(const QueueEvent_t* p_queueEvent);
+void readSensorData(const QueueEvent_t* p_queueEvent);
+void handleSensorDataChanged(const QueueEvent_t* p_queueEvent);
+void handleDisplayStatiChanged(const QueueEvent_t* p_queueEvent);
 
-void requestUUIDsISR(void* arg);
-void readSensorDataISR(void* arg);
+void requestUUIDsISR(void* p_arg);
+void readSensorDataISR(void* p_arg);
 
 void sendUUIDRequest(void);
 
@@ -50,19 +50,19 @@ void IRAM_ATTR speedISR();
 void IRAM_ATTR rpmISR();
 
 void debugListAllSpiffsFiles();
-void printDisplayConfigurationFile(const FILE* file);
+void printDisplayConfigurationFile(const FILE* p_file);
 
 /*
  *	Private Variables
  */
-static esp_timer_handle_t uuidTimerHandle_;
-static const esp_timer_create_args_t uuidTimerConf_ = {.callback = &requestUUIDsISR, .name = "Request HW UUIDs Timer"};
-static uint8_t uuidRequestCounter_;
+static esp_timer_handle_t g_uuidTimerHandle;
+static const esp_timer_create_args_t g_uuidTimerConf = {.callback = &requestUUIDsISR, .name = "Request HW UUIDs Timer"};
+static uint8_t g_uuidRequestCounter;
 
-static bool operationModeInitialized_ = false;
+static bool g_operationModeInitialized = false;
 
-static esp_timer_handle_t readSensorDataTimerHandle_;
-static const esp_timer_create_args_t readSensorDataTimerConf_ = {.callback = &readSensorDataISR,
+static esp_timer_handle_t g_readSensorDataTimerHandle;
+static const esp_timer_create_args_t g_readSensorDataTimerConf = {.callback = &readSensorDataISR,
                                                                  .name = "Read Sensor Data Timer"};
 
 
@@ -71,36 +71,36 @@ static const esp_timer_create_args_t readSensorDataTimerConf_ = {.callback = &re
  */
 
 //! \brief Connected to a Timer timeout to send UUID requests until we received all of them
-void requestUUIDsISR(void* arg)
+void requestUUIDsISR(void* p_arg)
 {
 	// Create the event
-	QUEUE_EVENT_T registerHwUUID;
+	QueueEvent_t registerHwUUID;
 	registerHwUUID.command = QUEUE_REQUEST_UUID;
 
 	// Increase the timer
-	uuidRequestCounter_++;
+	g_uuidRequestCounter++;
 
 	// Queue it
 	BaseType_t xHigherPriorityTaskWoken;
-	xQueueSendFromISR(mainEventQueue, &registerHwUUID, &xHigherPriorityTaskWoken);
+	xQueueSendFromISR(g_mainEventQueue, &registerHwUUID, &xHigherPriorityTaskWoken);
 }
 
 //! \brief Connected to a Timer timeout to read the data from all sensor
-void readSensorDataISR(void* arg)
+void readSensorDataISR(void* p_arg)
 {
 	// Create the event
-	QUEUE_EVENT_T readData;
+	QueueEvent_t readData;
 	readData.command = QUEUE_READ_SENSOR_DATA;
 
 	// Queue it
 	BaseType_t xHigherPriorityTaskWoken;
-	xQueueSendFromISR(mainEventQueue, &readData, &xHigherPriorityTaskWoken);
+	xQueueSendFromISR(g_mainEventQueue, &readData, &xHigherPriorityTaskWoken);
 }
 
 /*
  *	Main functions
  */
-void app_main(void)
+void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 {
 	// Initialize the File Manager
 	fileManagerInit();
@@ -122,21 +122,21 @@ void app_main(void)
 	sensorManagerInit();
 
 	// Register the queue to the CAN bus
-	registerCanRxCbQueue(&mainEventQueue);
+	registerCanRxCbQueue(&g_mainEventQueue);
 
 	// Register the queue to the Data Center
-	registerDataCenterCbQueue(&mainEventQueue);
+	registerDataCenterCbQueue(&g_mainEventQueue);
 
 	// Send a UUID Request
-	QUEUE_EVENT_T initRequest;
+	QueueEvent_t initRequest;
 	initRequest.command = QUEUE_REQUEST_UUID;
-	xQueueSend(mainEventQueue, &initRequest, portMAX_DELAY);
+	xQueueSend(g_mainEventQueue, &initRequest, portMAX_DELAY);
 
 	// Wait for new queue events
-	QUEUE_EVENT_T queueEvent;
+	QueueEvent_t queueEvent;
 	while (true) {
 		// Wait until we get a new event in the queue
-		if (xQueueReceive(mainEventQueue, &queueEvent, portMAX_DELAY)) {
+		if (xQueueReceive(g_mainEventQueue, &queueEvent, portMAX_DELAY)) {
 			// Act depending on the event
 			switch (queueEvent.command) {
 				/*
@@ -207,10 +207,10 @@ void app_main(void)
 	}
 }
 
-void restartDisplay(const QUEUE_EVENT_T* queueEvent)
+void restartDisplay(const QueueEvent_t* p_queueEvent)
 {
 	// Do we have parameters?
-	if (queueEvent->parameterLength <= 0) {
+	if (p_queueEvent->parameterLength <= 0) {
 		loggerDebug("Not enough parameters");
 
 		return;
@@ -218,18 +218,18 @@ void restartDisplay(const QUEUE_EVENT_T* queueEvent)
 
 	// Create the can frame answer
 	twai_frame_t* restartFrame =
-		generateCanFrame(CAN_MSG_DISPLAY_RESTART, CAN_SENDER_ID, queueEvent->parameter, queueEvent->parameterLength);
+		generateCanFrame(CAN_MSG_DISPLAY_RESTART, CAN_SENDER_ID, p_queueEvent->parameter, p_queueEvent->parameterLength);
 
 	// Send the frame
 	queueCanBusMessage(restartFrame, true, true);
 }
 
-void handleCanMessage(const QUEUE_EVENT_T* queueEvent)
+void handleCanMessage(const QueueEvent_t* p_queueEvent)
 {
 	loggerDebug("Received new can message");
 
 	// Get the frame
-	const twai_frame_t recFrame = queueEvent->canFrame;
+	const twai_frame_t recFrame = p_queueEvent->canFrame;
 	// Registration process
 	if ((recFrame.header.id >> 21) == CAN_MSG_REGISTRATION && recFrame.buffer_len >= 6) {
 		/*
@@ -283,7 +283,7 @@ void handleCanMessage(const QUEUE_EVENT_T* queueEvent)
 		buffer[3] = recFrame.buffer[3];
 		buffer[4] = recFrame.buffer[4];
 		buffer[5] = recFrame.buffer[5];
-		buffer[6] = ++amountOfConnectedDisplays; // COM ID
+		buffer[6] = ++g_amountOfConnectedDisplays; // COM ID
 
 		// Do we have a matching entry?
 		if (matchedEntry != 255) {
@@ -334,13 +334,8 @@ void handleCanMessage(const QUEUE_EVENT_T* queueEvent)
 
 		// Check if the one that connected is already being tracked
 		for (uint8_t i = 0; i < AMOUNT_OF_DISPLAYS; i++) {
-			// Does the uuid match?
-			if (displays[i].uuid != NULL && strcmp(displays[i].uuid, formattedUUID) == 0) {
-				display = &displays[i];
-				break;
-			}
-			// Nope and all following entries are default ones, so take this one
-			else if (displays[i].uuid == NULL) {
+			// Does the uuid match or is it a placeholder?
+			if ((displays[i].uuid != NULL && strcmp(displays[i].uuid, formattedUUID) == 0) || displays[i].uuid == NULL) {
 				display = &displays[i];
 				break;
 			}
@@ -380,7 +375,7 @@ void handleCanMessage(const QUEUE_EVENT_T* queueEvent)
 	}
 }
 
-void requestUUIDs(const QUEUE_EVENT_T* queueEvent)
+void requestUUIDs(const QueueEvent_t* p_queueEvent)
 {
 	// Did we receive all HW UUIDs?
 	bool allUUIDsReceived = true;
@@ -399,12 +394,12 @@ void requestUUIDs(const QUEUE_EVENT_T* queueEvent)
 		sendUUIDRequest();
 
 		// And restart the timer
-		const uint64_t timeout = uuidRequestCounter_ >= 10 ? 2000 * 1000 : 200 * 1000;
-		if (uuidTimerHandle_ == NULL) {
-			esp_timer_create(&uuidTimerConf_, &uuidTimerHandle_);
+		const uint64_t timeout = g_uuidRequestCounter >= 10 ? 2000 * 1000 : 200 * 1000;
+		if (g_uuidTimerHandle == NULL) {
+			esp_timer_create(&g_uuidTimerConf, &g_uuidTimerHandle);
 		}
-		if (!esp_timer_is_active(uuidTimerHandle_)) {
-			esp_timer_start_once(uuidTimerHandle_, timeout);
+		if (!esp_timer_is_active(g_uuidTimerHandle)) {
+			esp_timer_start_once(g_uuidTimerHandle, timeout);
 		}
 
 		// Should we switch to the operation state?
@@ -425,23 +420,23 @@ void requestUUIDs(const QUEUE_EVENT_T* queueEvent)
 		loggerInfo("All displays registered themselves");
 
 		// Delete the timer
-		esp_timer_delete(uuidTimerHandle_);
-		uuidTimerHandle_ = NULL;
+		esp_timer_delete(g_uuidTimerHandle);
+		g_uuidTimerHandle = NULL;
 
 		// And then enter the OPERATION mode
 		setCurrentState(STATE_OPERATION);
 
 		// Queue the init of the operation mode
-		QUEUE_EVENT_T rq;
+		QueueEvent_t rq;
 		rq.command = QUEUE_INIT_OPERATION_MODE;
-		xQueueSend(mainEventQueue, &rq, portMAX_DELAY);
+		xQueueSend(g_mainEventQueue, &rq, portMAX_DELAY);
 	}
 }
 
-void initOperationMode(const QUEUE_EVENT_T* queueEvent)
+void initOperationMode(const QueueEvent_t* queueEvent)
 {
 	// Are we already in the OPERATION mode but not yet initialized?
-	if (getCurrentState() == STATE_OPERATION && operationModeInitialized_ == false) {
+	if (getCurrentState() == STATE_OPERATION && g_operationModeInitialized == false) {
 		bool initSucceeded = true;
 
 		/*
@@ -452,24 +447,24 @@ void initOperationMode(const QUEUE_EVENT_T* queueEvent)
 		/*
 		 *	Start reading the sensor data
 		 */
-		if (readSensorDataTimerHandle_ == NULL) {
-			initSucceeded &= esp_timer_create(&readSensorDataTimerConf_, &readSensorDataTimerHandle_);
+		if (g_readSensorDataTimerHandle == NULL) {
+			initSucceeded &= esp_timer_create(&g_readSensorDataTimerConf, &g_readSensorDataTimerHandle);
 		}
-		if (!esp_timer_is_active(readSensorDataTimerHandle_)) {
+		if (!esp_timer_is_active(g_readSensorDataTimerHandle)) {
 			initSucceeded &=
-				esp_timer_start_periodic(readSensorDataTimerHandle_, READ_SENSOR_DATA_INTERVAL_MS * 1000);
+				esp_timer_start_periodic(g_readSensorDataTimerHandle, READ_SENSOR_DATA_INTERVAL_MS * 1000);
 		}
 
 		// Start the reading of the speed and RPM sensor
-		sensorManagerEnableSpeedISR();
+		test_function_snake_case();
 		sensorManagerEnableRpmISR();
 
 		// Finished the initialization
-		operationModeInitialized_ = initSucceeded;
+		g_operationModeInitialized = initSucceeded;
 	}
 }
 
-void readSensorData(const QUEUE_EVENT_T* queueEvent)
+void readSensorData(const QueueEvent_t* queueEvent)
 {
 	bool dataUpdated = false;
 	dataUpdated |= sensorManagerUpdateFuelLevel();
@@ -485,10 +480,10 @@ void readSensorData(const QUEUE_EVENT_T* queueEvent)
 	}
 }
 
-void handleSensorDataChanged(const QUEUE_EVENT_T* queueEvent)
+void handleSensorDataChanged(const QueueEvent_t* queueEvent)
 {
 	// Are we successfully initialize?
-	if (!operationModeInitialized_) {
+	if (!g_operationModeInitialized) {
 		return;
 	}
 
@@ -497,14 +492,14 @@ void handleSensorDataChanged(const QUEUE_EVENT_T* queueEvent)
 	if (buffer == NULL) {
 		return;
 	}
-	buffer[0] = vehicleSpeed;
-	buffer[1] = vehicleRPM >> 8;
-	buffer[2] = (uint8_t)vehicleRPM;
-	buffer[3] = fuelLevelInPercent;
-	buffer[4] = waterTemp;
-	buffer[5] = oilPressure;
-	buffer[6] = leftIndicator;
-	buffer[7] = rightIndicator;
+	buffer[0] = g_vehicleSpeed;
+	buffer[1] = g_vehicleRPM >> 8;
+	buffer[2] = (uint8_t)g_vehicleRPM;
+	buffer[3] = g_fuelLevelInPercent;
+	buffer[4] = g_waterTemp;
+	buffer[5] = g_oilPressure;
+	buffer[6] = g_leftIndicator;
+	buffer[7] = g_rightIndicator;
 
 	// Create the CAN answer frame
 	twai_frame_t* sensorDataFrame = generateCanFrame(CAN_MSG_SENSOR_DATA, CAN_SENDER_ID, buffer, 8);
@@ -513,14 +508,14 @@ void handleSensorDataChanged(const QUEUE_EVENT_T* queueEvent)
 	queueCanBusMessage(sensorDataFrame, true, true);
 }
 
-void handleDisplayStatiChanged(const QUEUE_EVENT_T* queueEvent)
+void handleDisplayStatiChanged(const QueueEvent_t* queueEvent)
 {
 	// Get all displays
 	const char* jsonOutput = getAllDisplayStatiAsJSON();
 
 	// Send the data to the webserver
 	if (jsonOutput != NULL) {
-		webinterfaceSendData(jsonOutput);
+		webinterfaceSendData();
 	}
 }
 

@@ -2,23 +2,23 @@
 #include "Global.h"
 #include "logger.h"
 
-QueueHandle_t updateEventQueue = NULL;
+QueueHandle_t g_updateEventQueue = NULL;
 
-QueueHandle_t mainEventQueue = NULL;
+QueueHandle_t g_mainEventQueue = NULL;
 
 bool createEventQueues()
 {
 	// Create the event Queue for the Update Handler
-	updateEventQueue = xQueueCreate(20, sizeof(QUEUE_EVENT_T));
-	if (updateEventQueue == NULL) {
+	g_updateEventQueue = xQueueCreate(20, sizeof(QueueEvent_t));
+	if (g_updateEventQueue == NULL) {
 		loggerCritical("Couldn't create updateEventQueue");
 
 		return false;
 	}
 
 	// Create the main Queue for the GUI
-	mainEventQueue = xQueueCreate(5, sizeof(QUEUE_EVENT_T));
-	if (mainEventQueue == NULL) {
+	g_mainEventQueue = xQueueCreate(5, sizeof(QueueEvent_t));
+	if (g_mainEventQueue == NULL) {
 		loggerCritical("Couldn't create mainEventQueue");
 
 		return false;

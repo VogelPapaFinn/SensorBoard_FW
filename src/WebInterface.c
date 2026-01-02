@@ -1,8 +1,9 @@
 // Project includes
-#include "WebInterface.h"
+#include "ConfigManager.h"
 #include "DataCenter.h"
-#include "logger.h"
 #include "FileManager.h"
+#include "logger.h"
+#include "WebInterface.h"
 
 // espidf includes
 #include <esp_http_server.h>
@@ -12,8 +13,6 @@
 #include <nvs_flash.h>
 #include <sys/dirent.h>
 #include <sys/param.h>
-
-#include "ConfigManager.h"
 #include "../../esp-idf/components/json/cJSON/cJSON.h"
 
 /*
@@ -25,10 +24,10 @@
 /*
  *	Prototypes
  */
-static void wifiEventHandler(void* arg, esp_event_base_t eventBase, int32_t eventID, void* eventData);
-static const char* getMimeType(const char* filepath);
-static esp_err_t requestHandler(httpd_req_t* reqst);
-static esp_err_t fileHandler(httpd_req_t* reqst);
+static void wifiEventHandler(void* p_arg, esp_event_base_t p_eventBase, int32_t eventID, void* p_eventData);
+static const char* getMimeType(const char* p_filepath);
+static esp_err_t requestHandler(httpd_req_t* p_reqst);
+static esp_err_t fileHandler(httpd_req_t* p_reqst);
 
 /*
  *	Other Handlers
@@ -37,36 +36,36 @@ static esp_err_t fileHandler(httpd_req_t* reqst);
 /*
  *	URIs
  */
-static const httpd_uri_t webinterfaceHandlerURI = {
+static const httpd_uri_t g_webinterfaceHandlerURI = {
 	.uri = "/*", .method = HTTP_GET, .handler = fileHandler, .user_ctx = NULL
 };
-static const httpd_uri_t webinterfaceWebsocketHandlerURI = {
+static const httpd_uri_t g_webinterfaceWebsocketHandlerURI = {
 	.uri = "/ws*", .method = HTTP_GET, .handler = requestHandler, .user_ctx = NULL, .is_websocket = true
 };
-static const httpd_uri_t webinterfaceApiGETHandlerURI = {
+static const httpd_uri_t g_webinterfaceApiGETHandlerURI = {
 	.uri = "/api/get*", .method = HTTP_GET, .handler = requestHandler, .user_ctx = NULL
 };
-static const httpd_uri_t webinterfaceApiPOSTHandlerURI = {
+static const httpd_uri_t g_webinterfaceApiPOSTHandlerURI = {
 	.uri = "/api/post*", .method = HTTP_POST, .handler = requestHandler, .user_ctx = NULL
 };
 
 /*
  *	Private Variables
  */
-httpd_handle_t httpdHandle_ = NULL;
-bool websocketConnected_ = false;
+httpd_handle_t g_httpdHandle = NULL;
+bool g_websocketConnected = false;
 
-char* joinApSSID_ = NULL;
-char* joinApPassword_ = NULL;
-char* hostApSSID_ = NULL;
-char* hostApPassword_ = NULL;
+char* g_joinApSSID = NULL;
+char* g_joinApPassword = NULL;
+char* g_hostApSSID = NULL;
+char* g_hostApPassword = NULL;
 
 /*
  *	File Handler
  */
-static const char* getMimeType(const char* filepath)
+static const char* getMimeType(const char* p_filepath)
 {
-	const char* lastDot = strrchr(filepath, '.');
+	const char* lastDot = strrchr(p_filepath, '.');
 	if (!lastDot)
 		return "text/plain";
 	if (strcmp(lastDot, ".html") == 0)
@@ -84,35 +83,35 @@ static const char* getMimeType(const char* filepath)
 	return "text/plain";
 }
 
-static esp_err_t requestHandler(httpd_req_t* reqst)
+static esp_err_t requestHandler(httpd_req_t* p_reqst)
 {
 	// Websocket Handshake
-	if (strcmp(reqst->uri, "/ws") == 0) {
+	if (strcmp(p_reqst->uri, "/ws") == 0) {
 		// Handshake
-		if (reqst->method == HTTP_GET) {
-			websocketConnected_ = true;
+		if (p_reqst->method == HTTP_GET) {
+			g_websocketConnected = true;
 			return ESP_OK;
 		}
 	}
 	// Request of initial data
-	else if (strcmp(reqst->uri, "/api/get/initial_data") == 0) {
+	else if (strcmp(p_reqst->uri, "/api/get/initial_data") == 0) {
 		// Send the initial data
 		const char* const jsonOutput = getAllDisplayStatiAsJSON();
 		if (jsonOutput != NULL) {
-			webinterfaceSendData(jsonOutput);
+			webinterfaceSendData();
 		}
 		return ESP_OK;
 	}
-	else if (strcmp(reqst->uri, "/api/post/restart_display") == 0) {
+	else if (strcmp(p_reqst->uri, "/api/post/restart_display") == 0) {
 		// Is it a POST request?
-		if (reqst->method != HTTP_POST) {
+		if (p_reqst->method != HTTP_POST) {
 			return ESP_ERR_INVALID_ARG;
 		}
 
 		// Get the data
 		char dataBuffer[128];
-		const uint8_t dataLength = reqst->content_len;
-		httpd_req_recv(reqst, dataBuffer, sizeof(dataBuffer));
+		const uint8_t dataLength = p_reqst->content_len;
+		httpd_req_recv(p_reqst, dataBuffer, sizeof(dataBuffer));
 
 		// Parse it to JSON
 		cJSON* root = cJSON_Parse(dataBuffer);
@@ -124,7 +123,7 @@ static esp_err_t requestHandler(httpd_req_t* reqst)
 		const cJSON* id = cJSON_GetObjectItem(root, "id");
 		if (cJSON_IsString(id) && (id->valuestring != NULL)) {
 			// Restart the display
-			QUEUE_EVENT_T restartDisplayRequest;
+			QueueEvent_t restartDisplayRequest;
 			restartDisplayRequest.command = QUEUE_RESTART_DISPLAY;
 
 			// Allocate the parameter memory and copy the value to the memory
@@ -135,7 +134,7 @@ static esp_err_t requestHandler(httpd_req_t* reqst)
 			restartDisplayRequest.parameterLength = strlen(id->valuestring);
 
 			// Send it to the queue
-			xQueueSend(mainEventQueue, &restartDisplayRequest, portMAX_DELAY);
+			xQueueSend(g_mainEventQueue, &restartDisplayRequest, portMAX_DELAY);
 		}
 
 		// Free memory
@@ -144,22 +143,22 @@ static esp_err_t requestHandler(httpd_req_t* reqst)
 	return ESP_OK;
 }
 
-static esp_err_t fileHandler(httpd_req_t* reqst)
+static esp_err_t fileHandler(httpd_req_t* p_reqst)
 {
 	// Array which holds the file path of the file we return
 	char filepath[600];
 
 	// Check if it is the index.html file
-	if (strcmp(reqst->uri, "") == 0) {
+	if (strcmp(p_reqst->uri, "") == 0) {
 		return ESP_ERR_INVALID_ARG;
 	}
 	// File request
-	if (strcmp(reqst->uri, "/") == 0) {
+	if (strcmp(p_reqst->uri, "/") == 0) {
 		strcpy(filepath, "webinterface/index.html");
 	}
 	else {
 		// Otherwise build the absolute path to the requested file
-		snprintf(filepath, sizeof(filepath), "webinterface%s", reqst->uri);
+		snprintf(filepath, sizeof(filepath), "webinterface%s", p_reqst->uri);
 	}
 
 	// Then open the file as read only
@@ -171,7 +170,7 @@ static esp_err_t fileHandler(httpd_req_t* reqst)
 	}
 
 	// Set the MIME Type
-	httpd_resp_set_type(reqst, getMimeType(filepath));
+	httpd_resp_set_type(p_reqst, getMimeType(filepath));
 
 	// Send the file in 4KB chunks
 	char* chunk = malloc(4096);
@@ -190,7 +189,7 @@ static esp_err_t fileHandler(httpd_req_t* reqst)
 		// Send if the chunk is not emptz
 		if (chunksize > 0) {
 			// Send the chunk to the requestor
-			if (httpd_resp_send_chunk(reqst, chunk, chunksize) != ESP_OK) {
+			if (httpd_resp_send_chunk(p_reqst, chunk, (ssize_t)chunksize) != ESP_OK) {
 				// Something went wrong
 				fclose(reqFile);
 				free(chunk);
@@ -205,7 +204,7 @@ static esp_err_t fileHandler(httpd_req_t* reqst)
 	free(chunk);
 
 	// Send one last empty chunk to signalize the end of the transmission
-	httpd_resp_send_chunk(reqst, NULL, 0);
+	httpd_resp_send_chunk(p_reqst, NULL, 0);
 
 	return ESP_OK;
 }
@@ -214,10 +213,10 @@ static esp_err_t fileHandler(httpd_req_t* reqst)
  *	Function implementations
  */
 
-void webinterfaceBroadcastWorker(void* arg)
+void webinterfaceBroadcastWorker(void* p_arg)
 {
 	// Cast the arg to a message
-	char* message = arg;
+	char* message = p_arg;
 	if (message == NULL) {
 		return;
 	}
@@ -227,7 +226,7 @@ void webinterfaceBroadcastWorker(void* arg)
 	int connectionFDS[MAX_HTTP_CONNECTIONS];
 
 	// Pull all FDS
-	if (httpd_get_client_list(httpdHandle_, &amountOfOpenConnections, connectionFDS) == ESP_OK) {
+	if (httpd_get_client_list(g_httpdHandle, &amountOfOpenConnections, connectionFDS) == ESP_OK) {
 		// Create the packet
 		httpd_ws_frame_t packet;
 		packet.payload = (uint8_t*)message;
@@ -236,7 +235,7 @@ void webinterfaceBroadcastWorker(void* arg)
 
 		// Send it to all open connections
 		for (int i = 0; i < amountOfOpenConnections; i++) {
-			httpd_ws_send_frame_async(httpdHandle_, connectionFDS[i], &packet);
+			httpd_ws_send_frame_async(g_httpdHandle, connectionFDS[i], &packet);
 		}
 	}
 
@@ -244,10 +243,10 @@ void webinterfaceBroadcastWorker(void* arg)
 	free(message);
 }
 
-void webinterfaceSendData(const char* data)
+void webinterfaceSendData(void)
 {
 	// First check if our web handle is valid
-	if (httpdHandle_ == NULL || !websocketConnected_) {
+	if (g_httpdHandle == NULL || !g_websocketConnected) {
 		return;
 	}
 
@@ -259,23 +258,23 @@ void webinterfaceSendData(const char* data)
 	// }
 }
 
-static void wifiEventHandler(void* arg, esp_event_base_t eventBase, int32_t eventID, void* eventData)
+static void wifiEventHandler(void* p_arg, const esp_event_base_t p_eventBase, const int32_t eventID, void* p_eventData)
 {
 	// Connecting to WiFI AP
-	if (eventBase == WIFI_EVENT && eventID == WIFI_EVENT_STA_START) {
+	if (p_eventBase == WIFI_EVENT && eventID == WIFI_EVENT_STA_START) {
 		esp_rom_printf("Connecting to WiFi...\n");
 		esp_wifi_connect();
 	}
 
 	// Disconnected from WiFi AP
-	else if (eventBase == WIFI_EVENT && eventID == WIFI_EVENT_STA_DISCONNECTED) {
+	else if (p_eventBase == WIFI_EVENT && eventID == WIFI_EVENT_STA_DISCONNECTED) {
 		esp_rom_printf("Disconnected, retrying...\n");
 		esp_wifi_connect();
 	}
 
 	// Successfully connected to WiFi AP
-	else if (eventBase == IP_EVENT && eventID == IP_EVENT_STA_GOT_IP) {
-		const ip_event_got_ip_t* event = (ip_event_got_ip_t*)eventData;
+	else if (p_eventBase == IP_EVENT && eventID == IP_EVENT_STA_GOT_IP) {
+		const ip_event_got_ip_t* event = (ip_event_got_ip_t*)p_eventData;
 		esp_rom_printf("Got IP assigned: %d.%d.%d.%d \n", IP2STR(&event->ip_info.ip));
 	}
 }
@@ -288,16 +287,16 @@ bool startWebInterface(WIFI_TYPE wifiType)
 	 *	Set default Values
 	 */
 	// Set JOIN_AP values
-	joinApSSID_ = (char*)malloc(sizeof("UNKNOWN"));
-	strcpy(joinApSSID_, "UNKNOWN");
-	joinApPassword_ = (char*)malloc(sizeof("UNKNOWN"));
-	strcpy(joinApPassword_, "UNKNOWN");
+	g_joinApSSID = (char*)malloc(sizeof("UNKNOWN"));
+	strcpy(g_joinApSSID, "UNKNOWN");
+	g_joinApPassword = (char*)malloc(sizeof("UNKNOWN"));
+	strcpy(g_joinApPassword, "UNKNOWN");
 
 	// Set HOST_AP values
-	hostApSSID_ = (char*)malloc(sizeof("MX5-HybridDash Sensor Board"));
-	strcpy(hostApSSID_, "MX5-HybridDash Sensor Board");
-	hostApPassword_ = (char*)malloc(sizeof("MX5-HybridDashV2"));
-	strcpy(hostApPassword_, "MX5-HybridDashV2");
+	g_hostApSSID = (char*)malloc(sizeof("MX5-HybridDash Sensor Board"));
+	strcpy(g_hostApSSID, "MX5-HybridDash Sensor Board");
+	g_hostApPassword = (char*)malloc(sizeof("MX5-HybridDashV2"));
+	strcpy(g_hostApPassword, "MX5-HybridDashV2");
 
 	/*
 	 *	Open the configuration file
@@ -326,14 +325,14 @@ bool startWebInterface(WIFI_TYPE wifiType)
 
 		// Check if they are valid
 		if (cJSON_IsString(joinApSSID) && joinApSSID->valuestring != NULL) {
-			free(joinApSSID_);
-			joinApSSID_ = malloc(strlen(joinApSSID->valuestring));
-			strcpy(joinApSSID_, joinApSSID->valuestring);
+			free(g_joinApSSID);
+			g_joinApSSID = malloc(strlen(joinApSSID->valuestring));
+			strcpy(g_joinApSSID, joinApSSID->valuestring);
 		}
 		if (cJSON_IsString(joinApPassword) && joinApPassword->valuestring != NULL) {
-			free(joinApPassword_);
-			joinApPassword_ = malloc(strlen(joinApPassword->valuestring));
-			strcpy(joinApPassword_, joinApPassword->valuestring);
+			free(g_joinApPassword);
+			g_joinApPassword = malloc(strlen(joinApPassword->valuestring));
+			strcpy(g_joinApPassword, joinApPassword->valuestring);
 		}
 
 		// Read the HOST_AP data
@@ -342,14 +341,14 @@ bool startWebInterface(WIFI_TYPE wifiType)
 
 		// Check if they are valid
 		if (cJSON_IsString(hostApSSID) && hostApSSID->valuestring != NULL) {
-			free(hostApSSID_);
-			hostApSSID_ = malloc(strlen(hostApSSID->valuestring));
-			strcpy(hostApSSID_, hostApSSID->valuestring);
+			free(g_hostApSSID);
+			g_hostApSSID = malloc(strlen(hostApSSID->valuestring));
+			strcpy(g_hostApSSID, hostApSSID->valuestring);
 		}
 		if (cJSON_IsString(hostApPassword) && hostApPassword->valuestring != NULL) {
-			free(hostApPassword_);
-			hostApPassword_ = malloc(strlen(hostApPassword->valuestring));
-			strcpy(hostApPassword_, hostApPassword->valuestring);
+			free(g_hostApPassword);
+			g_hostApPassword = malloc(strlen(hostApPassword->valuestring));
+			strcpy(g_hostApPassword, hostApPassword->valuestring);
 		}
 	}
 
@@ -380,15 +379,15 @@ bool startWebInterface(WIFI_TYPE wifiType)
 		wifiConfig = (wifi_config_t){
 			.ap = {
 				//.ssid = hostApSSID_,
-				.ssid_len = strlen(hostApSSID_),
+				.ssid_len = strlen(g_hostApSSID),
 				.channel = 1,
 				//.password = hostApPassword_,
 				.max_connection = 4,
 				.authmode = WIFI_AUTH_WPA2_PSK,
 			}
 		};
-		strlcpy((char*)wifiConfig.ap.ssid, hostApSSID_, sizeof(wifiConfig.ap.ssid));
-		strlcpy((char*)wifiConfig.ap.password, hostApPassword_, sizeof(wifiConfig.ap.password));
+		strlcpy((char*)wifiConfig.ap.ssid, g_hostApSSID, sizeof(wifiConfig.ap.ssid));
+		strlcpy((char*)wifiConfig.ap.password, g_hostApPassword, sizeof(wifiConfig.ap.password));
 
 		// Start up the Wi-Fi AP
 		success &= esp_wifi_set_mode(WIFI_MODE_AP) == ESP_OK;
@@ -419,8 +418,8 @@ bool startWebInterface(WIFI_TYPE wifiType)
 				.threshold.authmode = WIFI_AUTH_WPA2_PSK,
 			},
 		};
-		strlcpy((char*)wifiConfig.sta.ssid, joinApSSID_, sizeof(wifiConfig.sta.ssid));
-		strlcpy((char*)wifiConfig.sta.password, joinApPassword_, sizeof(wifiConfig.sta.password));
+		strlcpy((char*)wifiConfig.sta.ssid, g_joinApSSID, sizeof(wifiConfig.sta.ssid));
+		strlcpy((char*)wifiConfig.sta.password, g_joinApPassword, sizeof(wifiConfig.sta.password));
 
 		// Register the event handler
 		success &=
@@ -445,12 +444,12 @@ bool startWebInterface(WIFI_TYPE wifiType)
 	config.uri_match_fn = httpd_uri_match_wildcard;
 
 	// Start the server
-	success &= httpd_start(&httpdHandle_, &config) == ESP_OK;
+	success &= httpd_start(&g_httpdHandle, &config) == ESP_OK;
 
 	// Register the URIs
-	success &= httpd_register_uri_handler(httpdHandle_, &webinterfaceWebsocketHandlerURI);
-	success &= httpd_register_uri_handler(httpdHandle_, &webinterfaceApiGETHandlerURI);
-	success &= httpd_register_uri_handler(httpdHandle_, &webinterfaceApiPOSTHandlerURI);
-	success &= httpd_register_uri_handler(httpdHandle_, &webinterfaceHandlerURI);
+	success &= httpd_register_uri_handler(g_httpdHandle, &g_webinterfaceWebsocketHandlerURI);
+	success &= httpd_register_uri_handler(g_httpdHandle, &g_webinterfaceApiGETHandlerURI);
+	success &= httpd_register_uri_handler(g_httpdHandle, &g_webinterfaceApiPOSTHandlerURI);
+	success &= httpd_register_uri_handler(g_httpdHandle, &g_webinterfaceHandlerURI);
 	return success;
 }

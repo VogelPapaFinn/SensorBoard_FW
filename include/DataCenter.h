@@ -39,42 +39,42 @@ typedef struct
  */
 
 //! \brief The speed of the car
-extern uint8_t vehicleSpeed;
+extern uint8_t g_vehicleSpeed;
 
 //! \brief The RPM of the car
-extern uint16_t vehicleRPM;
+extern uint16_t g_vehicleRPM;
 
 //! \brief The fuel level (%) of the car
-extern uint8_t fuelLevelInPercent;
+extern uint8_t g_fuelLevelInPercent;
 
 //! \brief The water temperature of the car
-extern uint8_t waterTemp;
+extern uint8_t g_waterTemp;
 
 //! \brief Do we have oil pressure?
-extern bool oilPressure;
+extern bool g_oilPressure;
 
 //! \brief Is the left indicator turned on
-extern bool leftIndicator;
+extern bool g_leftIndicator;
 
 //! \brief Is the right indicator turned on
-extern bool rightIndicator;
+extern bool g_rightIndicator;
 
 /*
  *	Connection Stuff
  */
 
 //! \brief Amount of connected displays. Used for assigning the COM IDs
-extern uint8_t amountOfConnectedDisplays;
+extern uint8_t g_amountOfConnectedDisplays;
 
 //! \brief The IP address we get assigned when joining an AP
-extern uint8_t ipAddress[4];
+extern uint8_t g_ipAddress[4];
 
 /*
  *	Public functions
  */
 void dataCenterInit();
 
-bool registerDataCenterCbQueue(QueueHandle_t* queueHandle);
+bool registerDataCenterCbQueue(QueueHandle_t* p_pqueueHandle);
 
 void broadcastSensorDataChanged();
 

@@ -69,7 +69,7 @@ bool sensorManagerUpdateWaterTemperature(void);
 
 //! \brief Enables the speed ISR
 //! \retval Boolean indicating if it worked
-bool sensorManagerEnableSpeedISR(void);
+bool test_function_snake_case(void);
 
 //! \brief Disables the speed ISR
 void sensorManagerDisableSpeedISR(void);

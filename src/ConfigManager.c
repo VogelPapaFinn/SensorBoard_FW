@@ -7,8 +7,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "logger.h"
-
 /*
  *	Private defines
  */
@@ -17,21 +15,21 @@
 /*
  *	Private Variables
  */
-static bool displayConfigAvailable_ = true;
-static char displayConfigurationBuffer_[MAX_CONFIG_SIZE_B];
-static cJSON* displayConfigurationRoot = NULL;
+static bool g_displayConfigAvailable = true;
+static char g_displayConfigurationBuffer[MAX_CONFIG_SIZE_B];
+static cJSON* g_displayConfigurationRoot = NULL;
 
-static bool wifiConfigAvailable_ = true;
-static char wifiConfigurationBuffer_[MAX_CONFIG_SIZE_B];
-static cJSON* wifiConfigurationRoot = NULL;
+static bool g_wifiConfigAvailable = true;
+static char g_wifiConfigurationBuffer[MAX_CONFIG_SIZE_B];
+static cJSON* g_wifiConfigurationRoot = NULL;
 
 /*
  *	Private Functions
  */
-static bool fileToJson(const char* fileName, char* buffer, const uint16_t bufferLen, cJSON** root)
+static bool fileToJson(const char* p_pfileName, char* p_pbuffer, const uint16_t bufferLen, cJSON** p_proot)
 {
 	// Open the file
-	FILE* file = fileManagerOpenFile(fileName, "r", CONFIG_PARTITION);
+	FILE* file = fileManagerOpenFile(p_pfileName, "r", CONFIG_PARTITION);
 
 	// Did that work?
 	if (file == NULL) {
@@ -39,27 +37,27 @@ static bool fileToJson(const char* fileName, char* buffer, const uint16_t buffer
 	}
 
 	// Zero the buffer
-	memset(buffer, 0, bufferLen);
+	memset(p_pbuffer, 0, bufferLen);
 
 	// Read everything from the file
-	if (fread(buffer, 1, bufferLen, file) == 0) {
+	if (fread(p_pbuffer, 1, bufferLen, file) == 0) {
 		fclose(file);
 		return false;
 	}
 	fclose(file);
 
 	// Parse it to JSON
-	*root = cJSON_Parse(buffer);
-	if (*root == NULL) {
+	*p_proot = cJSON_Parse(p_pbuffer);
+	if (*p_proot == NULL) {
 		return false;
 	}
 	return true;
 }
 
-static bool jsonToFile(const cJSON* root, const char* fileName)
+static bool jsonToFile(const cJSON* p_proot, const char* p_pfileName)
 {
 	// Open the file
-	FILE* file = fileManagerOpenFile(fileName, "w", CONFIG_PARTITION);
+	FILE* file = fileManagerOpenFile(p_pfileName, "w", CONFIG_PARTITION);
 
 	// Did that work?
 	if (file == NULL) {
@@ -67,7 +65,7 @@ static bool jsonToFile(const cJSON* root, const char* fileName)
 	}
 
 	// Write the JSON configuration to it
-	char* jsonFormatted = cJSON_Print(root);
+	char* jsonFormatted = cJSON_Print(p_proot);
 	int result = fprintf(file, "%s", jsonFormatted);
 	free(jsonFormatted);
 
@@ -90,52 +88,52 @@ void configManagerInit()
 	 *	Display Config
 	 */
 	// Try to load the display config
-	displayConfigAvailable_ = fileToJson(DISPLAY_CONFIG_NAME, displayConfigurationBuffer_, MAX_CONFIG_SIZE_B,
-	                                     &displayConfigurationRoot);
+	g_displayConfigAvailable = fileToJson(DISPLAY_CONFIG_NAME, g_displayConfigurationBuffer, MAX_CONFIG_SIZE_B,
+	                                     &g_displayConfigurationRoot);
 
 	// Load the default config if it failed
-	if (!displayConfigAvailable_) {
-		displayConfigAvailable_ = fileToJson(DEFAULT_CONFIG_FOLDER "/" DISPLAY_CONFIG_NAME, displayConfigurationBuffer_,
-		                                     MAX_CONFIG_SIZE_B, &displayConfigurationRoot);
+	if (!g_displayConfigAvailable) {
+		g_displayConfigAvailable = fileToJson(DEFAULT_CONFIG_FOLDER "/" DISPLAY_CONFIG_NAME, g_displayConfigurationBuffer,
+		                                     MAX_CONFIG_SIZE_B, &g_displayConfigurationRoot);
 	}
 
 	/*
 	 *	WiFi Config
 	 */
 	// Try to load the WiFi config
-	wifiConfigAvailable_ = fileToJson(WIFI_CONFIG_NAME, wifiConfigurationBuffer_, MAX_CONFIG_SIZE_B,
-	                                  &wifiConfigurationRoot);
+	g_wifiConfigAvailable = fileToJson(WIFI_CONFIG_NAME, g_wifiConfigurationBuffer, MAX_CONFIG_SIZE_B,
+	                                  &g_wifiConfigurationRoot);
 
 	// Load the default config if it failed
-	if (!wifiConfigAvailable_) {
-		wifiConfigAvailable_ = fileToJson(DEFAULT_CONFIG_FOLDER "/" WIFI_CONFIG_NAME, wifiConfigurationBuffer_,
-		                                  MAX_CONFIG_SIZE_B, &wifiConfigurationRoot);
+	if (!g_wifiConfigAvailable) {
+		g_wifiConfigAvailable = fileToJson(DEFAULT_CONFIG_FOLDER "/" WIFI_CONFIG_NAME, g_wifiConfigurationBuffer,
+		                                  MAX_CONFIG_SIZE_B, &g_wifiConfigurationRoot);
 	}
 }
 
 cJSON* getDisplayConfiguration()
 {
-	if (!displayConfigAvailable_) {
+	if (!g_displayConfigAvailable) {
 		return NULL;
 	}
-	return displayConfigurationRoot;
+	return g_displayConfigurationRoot;
 }
 
 bool writeDisplayConfigurationToFile()
 {
-	return jsonToFile(displayConfigurationRoot, DISPLAY_CONFIG_NAME);
+	return jsonToFile(g_displayConfigurationRoot, DISPLAY_CONFIG_NAME);
 }
 
 cJSON* getWifiConfiguration()
 {
-	if (!wifiConfigAvailable_) {
+	if (!g_wifiConfigAvailable) {
 		return NULL;
 	}
 
-	return wifiConfigurationRoot;
+	return g_wifiConfigurationRoot;
 }
 
 bool writeWifiConfigurationToFile()
 {
-	return jsonToFile(wifiConfigurationRoot, WIFI_CONFIG_NAME);
+	return jsonToFile(g_wifiConfigurationRoot, WIFI_CONFIG_NAME);
 }

@@ -13,51 +13,51 @@
 #include <esp_timer.h>
 
 // The ADC handles
-adc_oneshot_unit_handle_t adc1Handle_;
-adc_oneshot_unit_handle_t adc2Handle_;
+adc_oneshot_unit_handle_t g_adc1Handle;
+adc_oneshot_unit_handle_t g_adc2Handle;
 
 // Where the ADC's correctly initialized
-bool initAdc2Failed_ = false;
+bool g_initAdc2Failed = false;
 
 // Oil pressure stuff
-bool oilPressure = false;
-adc_cali_handle_t adc2OilCalibHandle_;
+bool g_oilPressure = false;
+adc_cali_handle_t g_adc2OilCalibHandle;
 
 // Fuel level stuff
-uint8_t fuelLevelInPercent = 0;
-float fuelLevelResistance_ = 0.0f;
-adc_cali_handle_t adc2FuelCalibHandle_;
+uint8_t g_fuelLevelInPercent = 0;
+float g_fuelLevelResistance = 0.0f;
+adc_cali_handle_t g_adc2FuelCalibHandle;
 
 // Water temperature stuff
-uint8_t waterTemp = 0;
-float waterTemperatureResistance_ = 0.0f;
-adc_cali_handle_t adc2WaterCalibHandle_;
+uint8_t g_waterTemp = 0;
+float g_waterTemperatureResistance = 0.0f;
+adc_cali_handle_t g_adc2WaterCalibHandle;
 
 // Speed stuff
-static int speedInHz_ = -1;
-uint8_t vehicleSpeed = 0;
-int64_t lastTimeOfFallingEdgeSpeed_ = 0;
-int64_t timeOfFallingEdgeSpeed_ = 0;
-static bool speedIsrActive_ = false;
+static int g_speedInHz = -1;
+uint8_t g_vehicleSpeed = 0;
+int64_t g_lastTimeOfFallingEdgeSpeed = 0;
+int64_t g_timeOfFallingEdgeSpeed = 0;
+static bool g_speedIsrActive = false;
 
 // RPM stuff
-uint16_t vehicleRPM = 0;
-int rpmInHz_ = -1;
-int64_t lastTimeOfFallingEdgeRPM_ = 0;
-int64_t timeOfFallingEdgeRPM_ = 0;
-static bool rpmIsrActive_ = false;
+uint16_t g_vehicleRPM = 0;
+int g_rpmInHz = -1;
+int64_t g_lastTimeOfFallingEdgeRPM = 0;
+int64_t g_timeOfFallingEdgeRPM = 0;
+static bool g_rpmIsrActive = false;
 
 // Internal temperature sensor stuff
-int intTempRawAdcValue_ = 0;
-int intTempVoltageMV_ = 0;
-double internalTemperature_ = 0.0;
-adc_cali_handle_t adc2IntTempCalibHandle_;
+int g_intTempRawAdcValue = 0;
+int g_intTempVoltageMV = 0;
+double g_internalTemperature = 0.0;
+adc_cali_handle_t g_adc2IntTempCalibHandle;
 
 // Indicators
-bool leftIndicator = false;
-adc_cali_handle_t adc2LeftIndicatorHandle_;
-bool rightIndicator = false;
-adc_cali_handle_t adc2RightIndicatorHandle_;
+bool g_leftIndicator = false;
+adc_cali_handle_t g_adc2LeftIndicatorHandle;
+bool g_rightIndicator = false;
+adc_cali_handle_t g_adc2RightIndicatorHandle;
 
 
 /*
@@ -66,15 +66,15 @@ adc_cali_handle_t adc2RightIndicatorHandle_;
 //! \brief ISR for the speed, triggered everytime there is a falling edge
 static void IRAM_ATTR speedInterruptHandler()
 {
-	lastTimeOfFallingEdgeSpeed_ = timeOfFallingEdgeSpeed_;
-	timeOfFallingEdgeSpeed_ = esp_timer_get_time();
+	g_lastTimeOfFallingEdgeSpeed = g_timeOfFallingEdgeSpeed;
+	g_timeOfFallingEdgeSpeed = esp_timer_get_time();
 }
 
 //! \brief ISR for the rpm, triggered everytime there is a falling edge
 static void IRAM_ATTR rpmInterruptHandler()
 {
-	lastTimeOfFallingEdgeRPM_ = timeOfFallingEdgeRPM_;
-	timeOfFallingEdgeRPM_ = esp_timer_get_time();
+	g_lastTimeOfFallingEdgeRPM = g_timeOfFallingEdgeRPM;
+	g_timeOfFallingEdgeRPM = esp_timer_get_time();
 }
 
 
@@ -104,7 +104,7 @@ float calculateVoltageDividerR2(const float preR1VoltageV, const int voltageMV, 
 //! TODO: Implement the non-linear function!
 int calculateFuelLevelFromResistance()
 {
-	float resistance = fuelLevelResistance_;
+	float resistance = g_fuelLevelResistance;
 
 	// Remove the resistance offset
 	resistance -= FUEL_LEVEL_OFFSET;
@@ -128,7 +128,7 @@ int calculateFuelLevelFromResistance()
 //! TODO: Implement the non-linear function!
 float calculateWaterTemperatureFromResistance()
 {
-	float resistance = waterTemperatureResistance_;
+	float resistance = g_waterTemperatureResistance;
 
 	// Remove the resistance offset
 	resistance -= FUEL_LEVEL_OFFSET;
@@ -145,7 +145,7 @@ float calculateWaterTemperatureFromResistance()
 //! TODO: Implement actual conversion
 float calculateSpeedFromFrequency()
 {
-	return speedInHz_;
+	return (float)g_speedInHz;
 }
 
 //! \brief Calculates the rpm from the measured frequency.
@@ -155,33 +155,33 @@ int calculateRpmFromFrequency()
 	double multiplier = 0.0;
 
 	// Get the multiplier
-	if (rpmInHz_ <= 0)
+	if (g_rpmInHz <= 0)
 		return -1;
-	if (rpmInHz_ <= 8)
+	if (g_rpmInHz <= 8)
 		multiplier = 50.0;
-	else if (rpmInHz_ <= 11)
+	else if (g_rpmInHz <= 11)
 		multiplier = 45.45;
-	else if (rpmInHz_ <= 17)
+	else if (g_rpmInHz <= 17)
 		multiplier = 41.18;
-	else if (rpmInHz_ <= 25)
+	else if (g_rpmInHz <= 25)
 		multiplier = 40.0;
-	else if (rpmInHz_ <= 56)
+	else if (g_rpmInHz <= 56)
 		multiplier = 34.48;
-	else if (rpmInHz_ <= 92)
+	else if (g_rpmInHz <= 92)
 		multiplier = 32.61;
-	else if (rpmInHz_ <= 123)
+	else if (g_rpmInHz <= 123)
 		multiplier = 32.52;
-	else if (rpmInHz_ <= 157)
+	else if (g_rpmInHz <= 157)
 		multiplier = 31.85;
-	else if (rpmInHz_ <= 188)
+	else if (g_rpmInHz <= 188)
 		multiplier = 31.91;
-	else if (rpmInHz_ <= 220)
+	else if (g_rpmInHz <= 220)
 		multiplier = 31.82;
-	else if (rpmInHz_ <= 262)
+	else if (g_rpmInHz <= 262)
 		multiplier = 30.54;
 
 	// Calculate the rpm and return it
-	return (int)((double)rpmInHz_ * multiplier);
+	return (int)((double)g_rpmInHz * multiplier);
 }
 
 /*
@@ -196,9 +196,9 @@ bool sensorManagerInit(void)
 		.unit_id = ADC_UNIT_2,
 		.ulp_mode = ADC_ULP_MODE_DISABLE
 	};
-	if (adc_oneshot_new_unit(&adc2InitConfig, &adc2Handle_) != ESP_OK) {
+	if (adc_oneshot_new_unit(&adc2InitConfig, &g_adc2Handle) != ESP_OK) {
 		// Init was NOT successful!
-		initAdc2Failed_ = true;
+		g_initAdc2Failed = true;
 
 		// Logging
 		loggerWarn("Failed to initialize ADC2!");
@@ -220,7 +220,7 @@ bool sensorManagerInit(void)
 		.bitwidth = ADC_BITWIDTH_12,
 		.atten = ADC_ATTEN_DB_2_5,
 	};
-	success &= adc_oneshot_config_channel(adc2Handle_, ADC_CHANNEL_OIL_PRESSURE, &adc2OilConfig) ==
+	success &= adc_oneshot_config_channel(g_adc2Handle, ADC_CHANNEL_OIL_PRESSURE, &adc2OilConfig) ==
 		ESP_OK;
 
 	// Create the calibration curve config
@@ -232,7 +232,7 @@ bool sensorManagerInit(void)
 	};
 
 	// Create calibration curve fitting
-	if (adc_cali_create_scheme_curve_fitting(&oilCaliConfig, &adc2OilCalibHandle_) != ESP_OK) {
+	if (adc_cali_create_scheme_curve_fitting(&oilCaliConfig, &g_adc2OilCalibHandle) != ESP_OK) {
 		// Logging
 		loggerError("'adc_cali_create_scheme_curve_fitting' for the oil pressure channel FAILED");
 	}
@@ -250,7 +250,7 @@ bool sensorManagerInit(void)
 		.bitwidth = ADC_BITWIDTH_12,
 		.atten = ADC_ATTEN_DB_2_5,
 	};
-	success &= adc_oneshot_config_channel(adc2Handle_, ADC_CHANNEL_FUEL_LEVEL, &adc2FuelConfig) ==
+	success &= adc_oneshot_config_channel(g_adc2Handle, ADC_CHANNEL_FUEL_LEVEL, &adc2FuelConfig) ==
 		ESP_OK;
 
 	// Create the calibration curve config
@@ -262,7 +262,7 @@ bool sensorManagerInit(void)
 	};
 
 	// Create calibration curve fitting
-	if (adc_cali_create_scheme_curve_fitting(&fuelCaliConfig, &adc2FuelCalibHandle_) != ESP_OK) {
+	if (adc_cali_create_scheme_curve_fitting(&fuelCaliConfig, &g_adc2FuelCalibHandle) != ESP_OK) {
 		// Logging
 		loggerError("'adc_cali_create_scheme_curve_fitting' for the fuel level channel FAILED");
 	}
@@ -280,7 +280,7 @@ bool sensorManagerInit(void)
 		.bitwidth = ADC_BITWIDTH_12,
 		.atten = ADC_ATTEN_DB_12,
 	};
-	success &= adc_oneshot_config_channel(adc2Handle_, ADC_CHANNEL_WATER_TEMPERATURE,
+	success &= adc_oneshot_config_channel(g_adc2Handle, ADC_CHANNEL_WATER_TEMPERATURE,
 	                                      &adc2WaterConfig) == ESP_OK;
 
 	// Create the calibration curve config
@@ -292,7 +292,7 @@ bool sensorManagerInit(void)
 	};
 
 	// Create calibration curve fitting
-	if (adc_cali_create_scheme_curve_fitting(&waterCaliConfig, &adc2WaterCalibHandle_) != ESP_OK) {
+	if (adc_cali_create_scheme_curve_fitting(&waterCaliConfig, &g_adc2WaterCalibHandle) != ESP_OK) {
 		// Logging
 		loggerError("'adc_cali_create_scheme_curve_fitting' for the water temperature channel FAILED");
 	}
@@ -313,13 +313,13 @@ bool sensorManagerInit(void)
 	}
 
 	// Activate the ISR for measuring the frequency for the speed
-	if (sensorManagerEnableSpeedISR()) {
+	if (test_function_snake_case()) {
 		// Everything worked
-		speedIsrActive_ = true;
+		g_speedIsrActive = true;
 	}
 	else {
 		// It failed
-		speedIsrActive_ = false;
+		g_speedIsrActive = false;
 
 		// Logging
 		loggerError("Failed to enable the speed ISR!");
@@ -337,11 +337,11 @@ bool sensorManagerInit(void)
 	// Activate the ISR for measuring the frequency for the rpm
 	if (sensorManagerEnableRpmISR()) {
 		// Everything worked
-		rpmIsrActive_ = true;
+		g_rpmIsrActive = true;
 	}
 	else {
 		// It failed
-		rpmIsrActive_ = false;
+		g_rpmIsrActive = false;
 
 		// Logging
 		loggerError("Failed to enable the rpm ISR!");
@@ -360,7 +360,7 @@ bool sensorManagerInit(void)
 		.unit_id = ADC_UNIT_1,
 		.ulp_mode = ADC_ULP_MODE_DISABLE
 	};
-	if (adc_oneshot_new_unit(&adc1InitConfig, &adc1Handle_) != ESP_OK) {
+	if (adc_oneshot_new_unit(&adc1InitConfig, &g_adc1Handle) != ESP_OK) {
 		// Logging
 		loggerWarn("Failed to initialize ADC1!");
 	}
@@ -370,7 +370,7 @@ bool sensorManagerInit(void)
 		.bitwidth = ADC_BITWIDTH_12,
 		.atten = ADC_ATTEN_DB_6,
 	};
-	success &= adc_oneshot_config_channel(adc1Handle_, ADC_CHANNEL_INT_TEMPERATURE,
+	success &= adc_oneshot_config_channel(g_adc1Handle, ADC_CHANNEL_INT_TEMPERATURE,
 	                                      &adc2IntTempConfig) == ESP_OK;
 
 	// Create the calibration curve config
@@ -382,7 +382,7 @@ bool sensorManagerInit(void)
 	};
 
 	// Create calibration curve fitting
-	if (adc_cali_create_scheme_curve_fitting(&intTempCaliConfig, &adc2IntTempCalibHandle_) != ESP_OK) {
+	if (adc_cali_create_scheme_curve_fitting(&intTempCaliConfig, &g_adc2IntTempCalibHandle) != ESP_OK) {
 		// Logging
 		loggerError("'adc_cali_create_scheme_curve_fitting' for the internal temperature sensor channel FAILED");
 	}
@@ -393,32 +393,32 @@ bool sensorManagerInit(void)
 bool sensorManagerUpdateOilPressure(void)
 {
 	// Was the init successfully?
-	if (initAdc2Failed_) return false;
+	if (g_initAdc2Failed) return false;
 
 	// Temporary containers
 	int rawAdcValue = 0;
 	int voltage = 0;
 
 	// Try to read from the ADC
-	if (adc_oneshot_read(adc2Handle_, ADC_CHANNEL_OIL_PRESSURE, &rawAdcValue) != ESP_OK) {
+	if (adc_oneshot_read(g_adc2Handle, ADC_CHANNEL_OIL_PRESSURE, &rawAdcValue) != ESP_OK) {
 		// Log that it failed
 		loggerWarn("Failed to read the oil pressure from the ADC!");
 	}
 
 	// Try to convert the ADC value to a voltage
-	if (adc_cali_raw_to_voltage(adc2OilCalibHandle_, rawAdcValue, &voltage) != ESP_OK) {
+	if (adc_cali_raw_to_voltage(g_adc2OilCalibHandle, rawAdcValue, &voltage) != ESP_OK) {
 		// Log that it failed
 		loggerWarn("Failed to calculate the voltage from the ADC value!");
 	}
 
 	// Check the thresholds
-	const bool oldOilPressureValue = oilPressure;
-	oilPressure = voltage > OIL_LOWER_VOLTAGE_THRESHOLD && voltage < OIL_UPPER_VOLTAGE_THRESHOLD;
+	const bool oldOilPressureValue = g_oilPressure;
+	g_oilPressure = voltage > OIL_LOWER_VOLTAGE_THRESHOLD && voltage < OIL_UPPER_VOLTAGE_THRESHOLD;
 
 	// Did it change?
-	if (oldOilPressureValue != oilPressure) {
+	if (oldOilPressureValue != g_oilPressure) {
 		// Logging
-		loggerDebug("Oil pressure changed! From: '%d' to '%d'", oldOilPressureValue, oilPressure);
+		loggerDebug("Oil pressure changed! From: '%d' to '%d'", oldOilPressureValue, g_oilPressure);
 
 		return true;
 	}
@@ -428,35 +428,35 @@ bool sensorManagerUpdateOilPressure(void)
 bool sensorManagerUpdateFuelLevel(void)
 {
 	// Was the init successfully?
-	if (initAdc2Failed_) return false;
+	if (g_initAdc2Failed) return false;
 
 	// Temporary containers
 	int rawAdcValue = 0;
 	int voltage = 0;
 
 	// Try to read from the ADC
-	if (adc_oneshot_read(adc2Handle_, ADC_CHANNEL_FUEL_LEVEL, &rawAdcValue) != ESP_OK) {
+	if (adc_oneshot_read(g_adc2Handle, ADC_CHANNEL_FUEL_LEVEL, &rawAdcValue) != ESP_OK) {
 		// Log that it failed
 		loggerWarn("Failed to read the fuel level from the ADC!");
 	}
 
 	// Try to convert the ADC value to a voltage
-	if (adc_cali_raw_to_voltage(adc2FuelCalibHandle_, rawAdcValue, &voltage) != ESP_OK) {
+	if (adc_cali_raw_to_voltage(g_adc2FuelCalibHandle, rawAdcValue, &voltage) != ESP_OK) {
 		// Log that it failed
 		loggerWarn("Failed to calculate the voltage from the ADC value!");
 	}
 
 	// Calculate resistance
-	fuelLevelResistance_ = calculateVoltageDividerR2(OIL_FUEL_WATER_VOLTAGE_V, voltage, OIL_FUEL_R1);
+	g_fuelLevelResistance = calculateVoltageDividerR2(OIL_FUEL_WATER_VOLTAGE_V, voltage, OIL_FUEL_R1);
 
 	// Calculate the fuel level from the calculated resistance
-	const int oldFuelLevelValue = fuelLevelInPercent;
-	fuelLevelInPercent = calculateFuelLevelFromResistance();
+	const int oldFuelLevelValue = g_fuelLevelInPercent;
+	g_fuelLevelInPercent = calculateFuelLevelFromResistance();
 
 	// Did it change?
-	if (oldFuelLevelValue != fuelLevelInPercent) {
+	if (oldFuelLevelValue != g_fuelLevelInPercent) {
 		// Logging
-		loggerDebug("Fuel level changed! From: '%d percent' to '%d percent'", oldFuelLevelValue, fuelLevelInPercent);
+		loggerDebug("Fuel level changed! From: '%d percent' to '%d percent'", oldFuelLevelValue, g_fuelLevelInPercent);
 
 		return true;
 	}
@@ -466,42 +466,42 @@ bool sensorManagerUpdateFuelLevel(void)
 bool sensorManagerUpdateWaterTemperature(void)
 {
 	// Was the init successfully?
-	if (initAdc2Failed_) return false;
+	if (g_initAdc2Failed) return false;
 
 	// Temporary containers
 	int rawAdcValue = 0;
 	int voltage = 0;
 
 	// Try to read from the ADC
-	if (adc_oneshot_read(adc2Handle_, ADC_CHANNEL_WATER_TEMPERATURE, &rawAdcValue) != ESP_OK) {
+	if (adc_oneshot_read(g_adc2Handle, ADC_CHANNEL_WATER_TEMPERATURE, &rawAdcValue) != ESP_OK) {
 		// Log that it failed
 		loggerWarn("Failed to read the water temperature from the ADC!");
 	}
 
 	// Try to convert the ADC value to a voltage
-	if (adc_cali_raw_to_voltage(adc2WaterCalibHandle_, rawAdcValue, &voltage) != ESP_OK) {
+	if (adc_cali_raw_to_voltage(g_adc2WaterCalibHandle, rawAdcValue, &voltage) != ESP_OK) {
 		// Log that it failed
 		loggerWarn("Failed to calculate the voltage from the ADC value!");
 	}
 
 	// Calculate resistance
-	waterTemperatureResistance_ = calculateVoltageDividerR2(OIL_FUEL_WATER_VOLTAGE_V, voltage, WATER_R1);
+	g_waterTemperatureResistance = calculateVoltageDividerR2(OIL_FUEL_WATER_VOLTAGE_V, voltage, WATER_R1);
 
 	// Calculate the water temperature from the calculated resistance
-	const float oldWaterTemperatureValue = waterTemp;
-	waterTemp = calculateWaterTemperatureFromResistance();
+	const float oldWaterTemperatureValue = g_waterTemp;
+	g_waterTemp = (uint8_t)calculateWaterTemperatureFromResistance();
 
 	// Did it change?
-	if (oldWaterTemperatureValue != waterTemp) {
+	if (oldWaterTemperatureValue != (float)g_waterTemp) {
 		// Logging
-		loggerDebug("Water temperature changed! From: '%d °C' to '%d °C'", oldWaterTemperatureValue, waterTemp);
+		loggerDebug("Water temperature changed! From: '%d °C' to '%d °C'", oldWaterTemperatureValue, g_waterTemp);
 
 		return true;
 	}
 	return false;
 }
 
-bool sensorManagerEnableSpeedISR()
+bool test_function_snake_case()
 {
 	return (gpio_isr_handler_add(GPIO_SPEED, speedInterruptHandler, NULL) == ESP_OK);
 }
@@ -514,24 +514,24 @@ void sensorManagerDisableSpeedISR()
 bool sensorManagerUpdateSpeed(void)
 {
 	// Calculate how much time between the two falling edges was
-	const int64_t time = timeOfFallingEdgeSpeed_ - lastTimeOfFallingEdgeSpeed_;
+	const int64_t time = g_timeOfFallingEdgeSpeed - g_lastTimeOfFallingEdgeSpeed;
 
 	// Convert the time to seconds
 	const float fT = (float)time / 1000.0f;
 
 	// Then save the speed frequency (rounded)
-	speedInHz_ = (int)round(1000.0 / fT);
+	g_speedInHz = (int)round(1000.0 / fT);
 
 	// Is the speed value valid?
-	if (speedInHz_ >= 500) speedInHz_ = 0;
+	if (g_speedInHz >= 500) g_speedInHz = 0;
 
 	// Convert the frequency to actual speed
-	const uint8_t oldSpeed = vehicleSpeed;
-	vehicleSpeed = (int)calculateSpeedFromFrequency();
+	const uint8_t oldSpeed = g_vehicleSpeed;
+	g_vehicleSpeed = (int)calculateSpeedFromFrequency();
 
-	if (oldSpeed != vehicleSpeed) {
+	if (oldSpeed != g_vehicleSpeed) {
 		// Logging
-		loggerDebug("Speed changed! From: '%d kmh' to '%d kmh'", oldSpeed, vehicleSpeed);
+		loggerDebug("Speed changed! From: '%d kmh' to '%d kmh'", oldSpeed, g_vehicleSpeed);
 
 		return true;
 	}
@@ -551,24 +551,24 @@ void sensorManagerDisableRpmISR()
 bool sensorManagerUpdateRPM(void)
 {
 	// Calculate how much time between the two falling edges was
-	const int64_t time = timeOfFallingEdgeRPM_ - lastTimeOfFallingEdgeRPM_;
+	const int64_t time = g_timeOfFallingEdgeRPM - g_lastTimeOfFallingEdgeRPM;
 
 	// Convert the time to seconds
 	const float fT = (float)time / 1000.0f;
 
 	// Then save the rpm frequency (rounded)
-	rpmInHz_ = (int)round(1000.0 / fT);
+	g_rpmInHz = (int)round(1000.0 / fT);
 
 	// Is the rpm value valid?
-	if (rpmInHz_ >= 300) rpmInHz_ = -1;
+	if (g_rpmInHz >= 300) g_rpmInHz = -1;
 
 	// Convert the frequency to actual rpm
-	const int oldRpm = vehicleRPM;
-	vehicleRPM = calculateRpmFromFrequency();
+	const int oldRpm = g_vehicleRPM;
+	g_vehicleRPM = calculateRpmFromFrequency();
 
-	if (oldRpm != vehicleRPM) {
+	if (oldRpm != g_vehicleRPM) {
 		// Logging
-		loggerDebug("RPM changed! From: '%d RPM' to '%d RPM'", oldRpm, vehicleRPM);
+		loggerDebug("RPM changed! From: '%d RPM' to '%d RPM'", oldRpm, g_vehicleRPM);
 
 		return true;
 	}
@@ -578,22 +578,22 @@ bool sensorManagerUpdateRPM(void)
 bool sensorManagerUpdateInternalTemperature(void)
 {
 	// Was the init successfully?
-	if (initAdc2Failed_) return false;
+	if (g_initAdc2Failed) return false;
 
 	// Try to get a reading from the ADC
-	if (adc_oneshot_read(adc1Handle_, ADC_CHANNEL_INT_TEMPERATURE, &intTempRawAdcValue_) != ESP_OK) {
+	if (adc_oneshot_read(g_adc1Handle, ADC_CHANNEL_INT_TEMPERATURE, &g_intTempRawAdcValue) != ESP_OK) {
 		// Logging
 		loggerError("Failed to read the internal temperature from the ADC!");
 	}
 
 	// Convert the adc raw value to a voltage (mV)
-	adc_cali_raw_to_voltage(adc2IntTempCalibHandle_, intTempRawAdcValue_, &intTempVoltageMV_);
+	adc_cali_raw_to_voltage(g_adc2IntTempCalibHandle, g_intTempRawAdcValue, &g_intTempVoltageMV);
 
 	// Then calculate the temperature from the voltage
-	double oldTemp = internalTemperature_;
-	internalTemperature_ = ((double)intTempVoltageMV_ - 540.0) / 10.0;
+	double oldTemp = g_internalTemperature;
+	g_internalTemperature = ((double)g_intTempVoltageMV - 540.0) / 10.0;
 
-	if (oldTemp != internalTemperature_) {
+	if (oldTemp != g_internalTemperature) {
 		return true;
 	}
 	return false;

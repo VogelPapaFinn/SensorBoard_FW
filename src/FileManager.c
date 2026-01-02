@@ -4,9 +4,9 @@
 #include "logger.h"
 
 // C includes
-#include <sys/unistd.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/unistd.h>
 
 // esp-idf includes
 #include "driver/sdmmc_host.h"
@@ -32,19 +32,19 @@
 /*
  *	Private Variables
  */
-static sdmmc_card_t* sdmmcCard_ = NULL;
-static sdmmc_host_t sdmmcHost_ = SDMMC_HOST_DEFAULT();
-static sdmmc_slot_config_t slotConfig_ = SDMMC_SLOT_CONFIG_DEFAULT();
-static esp_vfs_fat_sdmmc_mount_config_t mountConfig_;
+static sdmmc_card_t* g_sdmmcCard = NULL;
+static sdmmc_host_t g_sdmmcHost = SDMMC_HOST_DEFAULT();
+static sdmmc_slot_config_t g_slotConfig = SDMMC_SLOT_CONFIG_DEFAULT();
+static esp_vfs_fat_sdmmc_mount_config_t g_mountConfig;
 
 // Is the SD Card mounted?
-static bool sdCardMounted_ = false;
+static bool g_sdCardMounted = false;
 
 // Is the internal data partition mounted?
-static bool dataPartitionMounted_ = false;
+static bool g_dataPartitionMounted = false;
 
 // Is the internal config partition mounted?
-static bool configPartitionMounted_ = false;
+static bool g_configPartitionMounted = false;
 
 /*
  *	Private Functions
@@ -53,12 +53,12 @@ static bool configPartitionMounted_ = false;
 //! \param path The path that should be checked
 //! \param location The location e.g. SD Card or Internal
 //! \retval char* which contains the full path. Check for NULL!
-static char* buildFullPath(const char* path, const int location)
+static char* buildFullPath(const char* p_path, const int location)
 {
 	// Check the location
 	if (location == CONFIG_PARTITION) {
 		// Is the config partition mounted?
-		if (!configPartitionMounted_) {
+		if (!g_configPartitionMounted) {
 			// Logging
 			loggerError("Config partition not mounted");
 
@@ -67,17 +67,17 @@ static char* buildFullPath(const char* path, const int location)
 
 		// Calculate the needed amount of memory and allocate it
 		const char partition[] = "/config/";
-		const uint8_t length = strlen(partition) + strlen(path) + 1;
+		const uint8_t length = strlen(partition) + strlen(p_path) + 1;
 		char* fullPath = malloc(length);
 		if (fullPath == NULL) return NULL;
 
 		// Then build the full path and return it
-		snprintf(fullPath, length, "%s%s", partition, path);
+		snprintf(fullPath, length, "%s%s", partition, p_path);
 		return fullPath;
 	}
 	else if (location == DATA_PARTITION) {
 		// Is the data partition mounted?
-		if (!dataPartitionMounted_) {
+		if (!g_dataPartitionMounted) {
 			// Logging
 			loggerError("Data partition not mounted");
 
@@ -86,17 +86,17 @@ static char* buildFullPath(const char* path, const int location)
 
 		// Calculate the needed amount of memory and allocate it
 		const char partition[] = "/data/";
-		const uint8_t length = strlen(partition) + strlen(path) + 1;
+		const uint8_t length = strlen(partition) + strlen(p_path) + 1;
 		char* fullPath = malloc(length);
 		if (fullPath == NULL) return NULL;
 
 		// Then build the full path and return it
-		snprintf(fullPath, length, "%s%s", partition, path);
+		snprintf(fullPath, length, "%s%s", partition, p_path);
 		return fullPath;
 	}
 	else if (location == SD_CARD) {
 		// Is the SD Card mounted?
-		if (!sdCardMounted_) {
+		if (!g_sdCardMounted) {
 			// Logging
 			loggerError("SD Card not mounted");
 
@@ -106,12 +106,12 @@ static char* buildFullPath(const char* path, const int location)
 
 		// Calculate the needed amount of memory and allocate it
 		const char partition[] = "/sdcard/";
-		const uint8_t length = strlen(partition) + strlen(path) + 1;
+		const uint8_t length = strlen(partition) + strlen(p_path) + 1;
 		char* fullPath = malloc(length);
 		if (fullPath == NULL) return NULL;
 
 		// Then build the full path and return it
-		snprintf(fullPath, length, "%s%s", partition, path);
+		snprintf(fullPath, length, "%s%s", partition, p_path);
 		return fullPath;
 	}
 
@@ -120,16 +120,16 @@ static char* buildFullPath(const char* path, const int location)
 
 //! \brief Checks if the location is mounted
 //! \param location The location which should be checked
-static bool isLocationMounted(const LOCATION_T location)
+static bool isLocationMounted(const Location_t location)
 {
 	// Check if the location is mounted
-	if (location == DATA_PARTITION && !dataPartitionMounted_) {
+	if (location == DATA_PARTITION && !g_dataPartitionMounted) {
 		return false;
 	}
-	if (location == CONFIG_PARTITION && !configPartitionMounted_) {
+	if (location == CONFIG_PARTITION && !g_configPartitionMounted) {
 		return false;
 	}
-	if (location == SD_CARD && !sdCardMounted_) {
+	if (location == SD_CARD && !g_sdCardMounted) {
 		return false;
 	}
 	return true;
@@ -146,30 +146,30 @@ bool fileManagerInit(void)
 	 */
 
 	// Initialize the SDMMC host
-	sdmmcHost_.max_freq_khz = SDMMC_FREQ_HIGHSPEED; // 40 MHz
-	sdmmcHost_.slot = SDMMC_HOST_SLOT_0;
+	g_sdmmcHost.max_freq_khz = SDMMC_FREQ_HIGHSPEED; // 40 MHz
+	g_sdmmcHost.slot = SDMMC_HOST_SLOT_0;
 
 	// Initialize the slot
-	slotConfig_.width = 4;
-	slotConfig_.clk = GPIO_CLK;
-	slotConfig_.cmd = GPIO_CMD;
-	slotConfig_.d0 = GPIO_D0;
-	slotConfig_.d1 = GPIO_D1;
-	slotConfig_.d2 = GPIO_D2;
-	slotConfig_.d3 = GPIO_D3;
+	g_slotConfig.width = 4;
+	g_slotConfig.clk = GPIO_CLK;
+	g_slotConfig.cmd = GPIO_CMD;
+	g_slotConfig.d0 = GPIO_D0;
+	g_slotConfig.d1 = GPIO_D1;
+	g_slotConfig.d2 = GPIO_D2;
+	g_slotConfig.d3 = GPIO_D3;
 
 	// Initialize the mount config
-	mountConfig_.format_if_mount_failed = false;
-	mountConfig_.max_files = 5; // Max. amount of simultaneously opened files
+	g_mountConfig.format_if_mount_failed = false;
+	g_mountConfig.max_files = 5; // Max. amount of simultaneously opened files
 
 	// Try to mount the SDCard
-	const esp_err_t mountCardResult = esp_vfs_fat_sdmmc_mount("/sdcard", &sdmmcHost_, &slotConfig_, &mountConfig_,
-	                                                          &sdmmcCard_);
+	const esp_err_t mountCardResult = esp_vfs_fat_sdmmc_mount("/sdcard", &g_sdmmcHost, &g_slotConfig, &g_mountConfig,
+	                                                          &g_sdmmcCard);
 
 	// Was the mount successful?
 	if (mountCardResult == ESP_OK) {
 		// The SDCard was mounted successfully
-		sdCardMounted_ = true;
+		g_sdCardMounted = true;
 
 		// Logging
 		loggerInfo("Mounted SD card successfully");
@@ -196,7 +196,7 @@ bool fileManagerInit(void)
 	// Was the mount successful?
 	if (mountDataResult == ESP_OK) {
 		// The data partition was mounted successfully
-		dataPartitionMounted_ = true;
+		g_dataPartitionMounted = true;
 
 		// Logging
 		loggerInfo("Mounted data partition successfully");
@@ -223,7 +223,7 @@ bool fileManagerInit(void)
 	// Was the mount successful?
 	if (mountConfigResult == ESP_OK) {
 		// The config partition was mounted successfully
-		configPartitionMounted_ = true;
+		g_configPartitionMounted = true;
 
 		// Logging
 		loggerInfo("Mounted config partition successfully");
@@ -237,11 +237,11 @@ bool fileManagerInit(void)
 
 
 	// Return success
-	return dataPartitionMounted_ && configPartitionMounted_
-		&& sdCardMounted_;
+	return g_dataPartitionMounted && g_configPartitionMounted
+		&& g_sdCardMounted;
 }
 
-bool fileManagerCreateFile(const char* path, const LOCATION_T location)
+bool fileManagerCreateFile(const char* p_path, const Location_t location)
 {
 	// Check if the location is mounted
 	if (isLocationMounted(location)) {
@@ -249,14 +249,14 @@ bool fileManagerCreateFile(const char* path, const LOCATION_T location)
 	}
 
 	// Contains the full path to the file
-	char* fullPath = buildFullPath(path, location);
+	char* fullPath = buildFullPath(p_path, location);
 
 	// For whatever reason fopen crashes with test.txt. I have absolutely no clue why but it costed me quite a few
 	// hours until I found the crashes are caused by this :C
-	if (strcmp(path, "test.txt") == 0) return false;
+	if (strcmp(p_path, "test.txt") == 0) return false;
 
 	// If the file does not yet exist
-	if (!fileManagerDoesFileExists(path, location)) {
+	if (!fileManagerDoesFileExists(p_path, location)) {
 		// Try to create a file
 		FILE* file = fopen(fullPath, "a+");
 
@@ -281,7 +281,7 @@ bool fileManagerCreateFile(const char* path, const LOCATION_T location)
 	return true;
 }
 
-bool fileManagerDoesFileExists(const char* path, const LOCATION_T location)
+bool fileManagerDoesFileExists(const char* p_path, const Location_t location)
 {
 	// Check if the location is mounted
 	if (isLocationMounted(location)) {
@@ -289,7 +289,7 @@ bool fileManagerDoesFileExists(const char* path, const LOCATION_T location)
 	}
 
 	// Contains the full path to the file
-	char* fullPath = buildFullPath(path, location);
+	char* fullPath = buildFullPath(p_path, location);
 
 	// Try to access that path
 	const bool result = access(fullPath, F_OK); // 0 -> success ; 1 -> error
@@ -300,7 +300,7 @@ bool fileManagerDoesFileExists(const char* path, const LOCATION_T location)
 	return !result;
 }
 
-FILE* fileManagerOpenFile(const char* path, const char* mode, const LOCATION_T location)
+FILE* fileManagerOpenFile(const char* p_path, const char* p_mode, const Location_t location)
 {
 	// Check if the location is mounted
 	if (!isLocationMounted(location)) {
@@ -308,18 +308,18 @@ FILE* fileManagerOpenFile(const char* path, const char* mode, const LOCATION_T l
 	}
 
 	// Contains the full path to the file
-	char* fullPath = buildFullPath(path, location);
+	char* fullPath = buildFullPath(p_path, location);
 	if (fullPath == NULL) {
 		return NULL;
 	}
 
 	// Try to open a file
-	FILE* file = fopen(fullPath, mode);
+	FILE* file = fopen(fullPath, p_mode);
 
 	// Was it successful?
 	if (file == NULL) {
 		// Logging
-		loggerError("Failed to open file. Path: %s ; Mode: %s", fullPath, mode);
+		loggerError("Failed to open file. Path: %s ; Mode: %s", fullPath, p_mode);
 
 		// Free the fullPath
 		free(fullPath);
@@ -336,7 +336,7 @@ FILE* fileManagerOpenFile(const char* path, const char* mode, const LOCATION_T l
 	return file;
 }
 
-bool fileManagerDeleteFile(const char* path, const LOCATION_T location)
+bool fileManagerDeleteFile(const char* p_path, const Location_t location)
 {
 	// Check if the location is mounted
 	if (isLocationMounted(location)) {
@@ -344,7 +344,7 @@ bool fileManagerDeleteFile(const char* path, const LOCATION_T location)
 	}
 
 	// Contains the full path to the file
-	char* fullPath = buildFullPath(path, location);
+	char* fullPath = buildFullPath(p_path, location);
 
 	// Try to delete the file
 	const bool result = !remove(fullPath); // 0 -> success ;  1 -> error
@@ -363,7 +363,7 @@ bool fileManagerDeleteFile(const char* path, const LOCATION_T location)
 	return result;
 }
 
-bool fileManagerDoesDirectoryExist(const char* dir)
+bool fileManagerDoesDirectoryExist(const char* p_dir)
 {
 	// Check if the sdcard is mounted
 	if (isLocationMounted(SD_CARD)) {
@@ -371,7 +371,7 @@ bool fileManagerDoesDirectoryExist(const char* dir)
 	}
 
 	// Contains the full path to the file
-	char* fullPath = buildFullPath(dir, SD_CARD);
+	char* fullPath = buildFullPath(p_dir, SD_CARD);
 
 	// Does the path exist?
 	struct stat stats;
@@ -385,15 +385,15 @@ bool fileManagerDoesDirectoryExist(const char* dir)
 	return result;
 }
 
-bool fileManagerCreateDir(const char* path)
+bool fileManagerCreateDir(const char* p_path)
 {
 	// Check if the sdcard is mounted
-	if (!sdCardMounted_) {
+	if (!g_sdCardMounted) {
 		return false;
 	}
 
 	// Contains the full path to the file
-	char* fullPath = buildFullPath(path, SD_CARD);
+	char* fullPath = buildFullPath(p_path, SD_CARD);
 
 	// Create the path
 	const bool result = mkdir(fullPath, S_IRWXU) == 0 ? true : false; // 0 -> success ; -1 -> error
@@ -410,15 +410,15 @@ bool fileManagerCreateDir(const char* path)
 	return result;
 }
 
-bool fileManagerDeleteDir(const char* path)
+bool fileManagerDeleteDir(const char* p_path)
 {
 	// Check if the sdcard is mounted
-	if (!sdCardMounted_) {
+	if (!g_sdCardMounted) {
 		return false;
 	}
 
 	// Contains the full path to the file
-	char* fullPath = buildFullPath(path, SD_CARD);
+	char* fullPath = buildFullPath(p_path, SD_CARD);
 
 	// Create the path
 	const bool result = rmdir(fullPath) == 0 ? true : false; // 0 -> success ; -1 -> error
@@ -435,7 +435,7 @@ bool fileManagerDeleteDir(const char* path)
 	return result;
 }
 
-void fileManager_test()
+void fileManagerTest()
 {
 	// Slots for two files
 	FILE* file1 = NULL;
@@ -457,9 +457,15 @@ void fileManager_test()
 	/* TESTING */
 
 	// Close the files
-	fclose(file1);
-	fclose(file2);
-	fclose(file3);
+	if (file1 != NULL) {
+		fclose(file1);
+	}
+	if (file2 != NULL) {
+		fclose(file2);
+	}
+	if (file3 != NULL) {
+		fclose(file3);
+	}
 
 	// Delete the files
 	fileManagerDeleteFile("hello.txt", CONFIG_PARTITION);
