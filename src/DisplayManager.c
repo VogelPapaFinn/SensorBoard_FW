@@ -1,0 +1,340 @@
+#include "DisplayManager.h"
+
+// Project includes
+#include "ConfigManager.h"
+#include "can.h"
+#include "FilesystemDriver.h"
+
+// espidf includes
+#include <esp_log.h>
+#include <esp_timer.h>
+
+/*
+ *	Private Defines
+ */
+#define AMOUNT_OF_DISPLAYS 1
+#define UUID_LENGTH_B 6
+#define FORMATTED_UUID_LENGTH_B 24
+#define DISPLAY_CONFIG_NAME "displays_config.json"
+#define REGISTRATION_REQUEST_INTERVALL_MICROS (200 * 1000) // 200 milliseconds
+
+/*
+ *	Private typedefs
+ */
+typedef struct
+{
+	char uuid[sizeof(uint8_t) * UUID_LENGTH_B];
+	uint8_t comId;
+} DisplayConfig_t;
+
+typedef enum
+{
+	SCREEN_TEMPERATURE,
+	SCREEN_SPEED,
+	SCREEN_RPM,
+	SCREEN_UNKNOWN = 255
+} Screen_t;
+
+/*
+ *	Private function prototypes
+ */
+static void broadcastRegistrationRequestCb(void* p_arg);
+
+static uint8_t getComIdFromUuid(const uint8_t* p_uuid);
+
+static uint8_t createComIdForUuid(const uint8_t* p_uuid);
+
+static uint8_t loadScreenForComIdFromFile(const uint8_t* p_uuid);
+
+static bool getFormattedUuid(const uint8_t* p_uuid, char* p_buffer, uint8_t bufferLength);
+
+/*
+ *	Private Variables
+ */
+//! \brief Amount of connected displays. Used for assigning the COM IDs
+static uint8_t g_amountOfConnectedDisplays;
+
+static bool g_registrationProcessActive = false;
+static esp_timer_handle_t g_registrationTimerHandle;
+static const esp_timer_create_args_t g_registrationTimerConfig = {.callback = &broadcastRegistrationRequestCb,
+                                                                  .name = "Display Registration Timer"};
+
+static DisplayConfig_t g_comIdEntries[AMOUNT_OF_DISPLAYS];
+
+/*
+ *	Private functions
+ */
+static void broadcastRegistrationRequestCb(void* p_arg)
+{
+	// Create the can frame
+	twai_frame_t* frame = generateCanFrame(CAN_MSG_REGISTRATION, g_ownCanSenderId, NULL, 0);
+
+	// Send the frame
+	queueCanBusMessage(frame, true, false);
+}
+
+static uint8_t getComIdFromUuid(const uint8_t* p_uuid)
+{
+	// Is the uuid valid?
+	if (p_uuid == NULL) {
+		return 0;
+	}
+
+	// Extract the formatted UUID
+	char formattedUuid[FORMATTED_UUID_LENGTH_B];
+	getFormattedUuid(p_uuid, formattedUuid, sizeof(formattedUuid));
+
+	// Iterate through the list of all com id entries
+	for (uint8_t i = 0; i < AMOUNT_OF_DISPLAYS; i++) {
+		// Is the entry not empty?
+		if (g_comIdEntries[i].comId != 0) {
+			// Extract the formatted UUID for the entry
+			char formattedUuidEntry[FORMATTED_UUID_LENGTH_B];
+			if (!getFormattedUuid((uint8_t*)g_comIdEntries[i].uuid, formattedUuidEntry, sizeof(formattedUuidEntry))) {
+				ESP_LOGE("DisplayManager", "Couldn't get the formatted uuid entry string");
+				return 0;
+			}
+
+			// Check if the uuids match
+			if (strcmp(formattedUuid, formattedUuidEntry) == 0) {
+				// Return com id
+				return g_comIdEntries[i].comId;
+			}
+		}
+	}
+
+	// Nothing found
+	return 0;
+}
+
+static uint8_t createComIdForUuid(const uint8_t* p_uuid)
+{
+	// Is the uuid valid?
+	if (p_uuid == NULL) {
+		return 0;
+	}
+
+	// Iterate through the list of all com id entries
+	for (uint8_t i = 0; i < AMOUNT_OF_DISPLAYS; i++) {
+		// Find the first empty entry
+		if (g_comIdEntries[i].comId == 0) {
+			// Set the UUID
+			g_comIdEntries[i].uuid[0] = *(p_uuid + 0); // NOLINT
+			g_comIdEntries[i].uuid[1] = *(p_uuid + 1); // NOLINT
+			g_comIdEntries[i].uuid[2] = *(p_uuid + 2); // NOLINT
+			g_comIdEntries[i].uuid[3] = *(p_uuid + 3); // NOLINT
+			g_comIdEntries[i].uuid[4] = *(p_uuid + 4); // NOLINT
+			g_comIdEntries[i].uuid[5] = *(p_uuid + 5); // NOLINT
+
+			// Set the com id
+			g_comIdEntries[i].comId = ++g_amountOfConnectedDisplays;
+
+			// Return the com id
+			return g_comIdEntries[i].comId;
+		}
+	}
+
+	return 0;
+}
+
+static uint8_t loadScreenForComIdFromFile(const uint8_t* p_uuid)
+{
+	// Is the uuid valid?
+	if (p_uuid == NULL) {
+		return SCREEN_UNKNOWN;
+	}
+
+	// Get the cJSON root object
+	const cJSON* root = getConfig(DISPLAY_CONFIG);
+
+	// Is it valid?
+	if (root == NULL) {
+		ESP_LOGE("DisplayManager", "Got faulty config for %d", DISPLAY_CONFIG);
+		return SCREEN_UNKNOWN;
+	}
+
+	// Get the display configurations
+	const cJSON* displayConfigurationsArray = cJSON_GetObjectItem(root, "displayConfigurations");
+
+	// Are they valid
+	if (displayConfigurationsArray == NULL) {
+		ESP_LOGE("DisplayManager", "Got display configurations from %d", DISPLAY_CONFIG);
+		return SCREEN_UNKNOWN;
+	}
+
+	// Check all config entries
+	for (uint8_t i = 0; i < (uint8_t)cJSON_GetArraySize(displayConfigurationsArray); i++) {
+		// Get the current entry
+		const cJSON* configuration = cJSON_GetArrayItem(displayConfigurationsArray, i);
+
+		// Get the UUID
+		const cJSON* uuid = cJSON_GetObjectItem(configuration, "comId");
+		if (cJSON_IsString(uuid) && (uuid->valuestring != NULL)) {
+			// Extract the formatted UUID
+			char formattedUuid[FORMATTED_UUID_LENGTH_B];
+			getFormattedUuid(p_uuid, formattedUuid, sizeof(formattedUuid));
+
+			// Is it the same UUID?
+			if (strcmp(uuid->valuestring, formattedUuid) == 0) {
+				return i;
+			}
+		}
+	}
+
+	// No match
+	return SCREEN_UNKNOWN;
+}
+
+static bool getFormattedUuid(const uint8_t* p_uuid, char* p_buffer, const uint8_t bufferLength)
+{
+	// Check if the pointers are valid
+	if (p_uuid == NULL || p_buffer == NULL) {
+		return false;
+	}
+
+	// Print into the buffer
+	snprintf(p_buffer, bufferLength, "%d-%d-%d-%d-%d-%d", *(p_uuid + 0), *(p_uuid + 1), *(p_uuid + 2), *(p_uuid + 3), *(p_uuid + 4), *(p_uuid + 5)); // NOLINT
+
+	return true;
+}
+
+/*
+ *	Public function implementations
+ */
+void displayManagerInit()
+{
+	// Load the display config
+	loadConfigFile(DISPLAY_CONFIG_NAME, DISPLAY_CONFIG);
+
+	displayPrintConfigFile();
+}
+
+void displayRestart(const uint8_t comId)
+{
+	// Do we have parameters?
+	if (comId <= 0) {
+		ESP_LOGD("DisplayManager", "Couldn't restart display. Received comID '0'");
+		return;
+	}
+
+	// Create the can frame answer
+	twai_frame_t* restartFrame =
+		generateCanFrame(CAN_MSG_DISPLAY_RESTART, g_ownCanSenderId, &comId, sizeof(comId));
+
+	// Send the frame
+	queueCanBusMessage(restartFrame, true, true);
+}
+
+void displayStartRegistrationProcess()
+{
+	// Are we already in the registration process?
+	if (g_registrationProcessActive) {
+		ESP_LOGW("DisplayManager", "There were multiple attempts to start the display registration process!");
+		return;
+	}
+
+	// Start the process
+	g_registrationProcessActive = true;
+
+	// Create the registration timer
+	esp_timer_create(&g_registrationTimerConfig, &g_registrationTimerHandle);
+
+	// Then start the timer
+	esp_timer_start_periodic(g_registrationTimerHandle, (uint64_t)REGISTRATION_REQUEST_INTERVALL_MICROS);
+}
+
+void displayRegisterWithUUID(const uint8_t* p_uuid)
+{
+	// Check if uuid is valid
+	if (p_uuid == NULL) {
+		ESP_LOGE("DisplayManager", "Received a NULL ID in the registration process");
+		return;
+	}
+
+	/*
+	 *	Check if we do we already have enough displays
+	 */
+	uint8_t comId = 0;
+	if (g_amountOfConnectedDisplays >= AMOUNT_OF_DISPLAYS) {
+		// Get its com id
+		comId = getComIdFromUuid(p_uuid);
+
+		// Is it a valid com id?
+		if (comId == 0) {
+			ESP_LOGW("DisplayManager", "A device tried to register itself but we already know %d devices",
+			         AMOUNT_OF_DISPLAYS);
+			return;
+		}
+	}
+
+	/*
+	 *	Get the com id if it is an unknown device
+	 */
+	if (comId == 0) {
+		comId = createComIdForUuid(p_uuid);
+
+		// Couldn't create com id
+		if (comId == 0) {
+			ESP_LOGE("DisplayManager", "Couldn't create com id for newly registered device");
+			return;
+		}
+	}
+
+	/*
+	 *	Get the screen
+	 */
+	Screen_t screen = loadScreenForComIdFromFile(p_uuid);
+
+	// If it is unknown, replace it with the default screen
+	if (screen == SCREEN_UNKNOWN) {
+		screen = SCREEN_TEMPERATURE;
+	}
+
+	/*
+	 *	Create and send the CAN message
+	 */
+	uint8_t* canBuffer = malloc(sizeof(uint8_t) * CAN_LENGTH_COMID_ASSIGNATION);
+	if (canBuffer == NULL) {
+		return;
+	}
+
+	// Insert the UUID
+	canBuffer[0] = *(p_uuid + 0); // NOLINT
+	canBuffer[1] = *(p_uuid + 1); // NOLINT
+	canBuffer[2] = *(p_uuid + 2); // NOLINT
+	canBuffer[3] = *(p_uuid + 3); // NOLINT
+	canBuffer[4] = *(p_uuid + 4); // NOLINT
+	canBuffer[5] = *(p_uuid + 5); // NOLINT
+
+	// Insert the com id
+	canBuffer[6] = comId; // NOLINT
+
+	// Insert the screen
+	canBuffer[7] = screen; // NOLINT
+
+	// Logging
+	ESP_LOGI("DisplayManager", "Sending ID '%d' and screen '%d' to UUID '%d-%d-%d-%d-%d-%d'", canBuffer[6],
+	         canBuffer[7], canBuffer[0],
+	         canBuffer[1],
+	         canBuffer[2], canBuffer[3], canBuffer[4], canBuffer[5]);
+
+	// Create the can frame
+	twai_frame_t* frame = generateCanFrame(CAN_MSG_COMID_ASSIGNATION, g_ownCanSenderId, canBuffer, sizeof(uint8_t) * CAN_LENGTH_COMID_ASSIGNATION); // NOLINT
+
+	// Send the frame
+	queueCanBusMessage(frame, true, true);
+}
+
+void displayPrintConfigFile()
+{
+	// Open the file
+	FILE* file = filesystemOpenFile(DISPLAY_CONFIG_NAME, "r", CONFIG_PARTITION);
+
+	ESP_LOGD("main", "--- Content of 'displays_config.json' ---");
+	char line[256];
+	while (fgets(line, sizeof(line), (FILE*)file) != NULL) {
+		printf("%s", line);
+	}
+	printf("\n");
+	ESP_LOGD("main", "--- End of 'displays_config.json' ---");
+}

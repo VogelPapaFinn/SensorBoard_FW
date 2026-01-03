@@ -1,4 +1,4 @@
-#include "FileManager.h"x
+#include "FilesystemDriver.h"
 
 // C includes
 #include <string.h>
@@ -7,9 +7,9 @@
 
 // esp-idf includes
 #include "driver/sdmmc_host.h"
+#include "esp_log.h"
 #include "esp_spiffs.h"
 #include "esp_vfs_fat.h"
-#include "esp_log.h"
 
 /*
  *	Private defines
@@ -58,7 +58,7 @@ static char* buildFullPath(const char* p_path, const int location)
 		// Is the config partition mounted?
 		if (!g_configPartitionMounted) {
 			// Logging
-			ESP_LOGE("FileManager", "Config partition not mounted");
+			ESP_LOGE("FilesystemDriver", "Config partition not mounted");
 
 			return NULL;
 		}
@@ -78,7 +78,7 @@ static char* buildFullPath(const char* p_path, const int location)
 		// Is the data partition mounted?
 		if (!g_dataPartitionMounted) {
 			// Logging
-			ESP_LOGE("FileManager", "Data partition not mounted");
+			ESP_LOGE("FilesystemDriver", "Data partition not mounted");
 
 			return NULL;
 		}
@@ -98,7 +98,7 @@ static char* buildFullPath(const char* p_path, const int location)
 		// Is the SD Card mounted?
 		if (!g_sdCardMounted) {
 			// Logging
-			ESP_LOGW("FileManager", "SD Card not mounted");
+			ESP_LOGW("FilesystemDriver", "SD Card not mounted");
 
 			// No so stop here!
 			return NULL;
@@ -140,7 +140,7 @@ static bool isLocationMounted(const Location_t location)
 /*
  *	Function implementations
  */
-bool fileManagerInit(void)
+bool filesystemInit(void)
 {
 	/*
 	 * Initializing the micro SDCard slot
@@ -173,11 +173,11 @@ bool fileManagerInit(void)
 		g_sdCardMounted = true;
 
 		// Logging
-		ESP_LOGI("FileManager", "Mounted SD card successfully");
+		ESP_LOGI("FilesystemDriver", "Mounted SD card successfully");
 	}
 	else {
 		// Logging
-		ESP_LOGW("FileManager", "Mounting SD card failed with error");
+		ESP_LOGW("FilesystemDriver", "Mounting SD card failed with error");
 	}
 
 	/*
@@ -200,13 +200,13 @@ bool fileManagerInit(void)
 		g_dataPartitionMounted = true;
 
 		// Logging
-		ESP_LOGI("FileManager", "Mounted data partition successfully");
+		ESP_LOGI("FilesystemDriver", "Mounted data partition successfully");
 
 		//esp_spiffs_format(NULL);
 	}
 	else {
 		// Logging
-		ESP_LOGE("FileManager", "Mounting data partition failed");
+		ESP_LOGE("FilesystemDriver", "Mounting data partition failed");
 	}
 	/*
 	 * Initialize config partition
@@ -227,13 +227,13 @@ bool fileManagerInit(void)
 		g_configPartitionMounted = true;
 
 		// Logging
-		ESP_LOGE("FileManager", "Mounted config partition successfully");
+		ESP_LOGI("FilesystemDriver", "Mounted config partition successfully");
 
 		//esp_spiffs_format(NULL);
 	}
 	else {
 		// Logging
-		ESP_LOGE("FileManager", "Mounting config partition failed");
+		ESP_LOGE("FilesystemDriver", "Mounting config partition failed");
 	}
 
 
@@ -242,7 +242,7 @@ bool fileManagerInit(void)
 		&& g_sdCardMounted;
 }
 
-bool fileManagerCreateFile(const char* p_path, const Location_t location)
+bool filesystemCreateFile(const char* p_path, const Location_t location)
 {
 	// Check if the location is mounted
 	if (isLocationMounted(location)) {
@@ -258,14 +258,14 @@ bool fileManagerCreateFile(const char* p_path, const Location_t location)
 		return false;
 
 	// If the file does not yet exist
-	if (!fileManagerDoesFileExists(p_path, location)) {
+	if (!filesystemDoesFileExists(p_path, location)) {
 		// Try to create a file
 		FILE* file = fopen(fullPath, "a+");
 
 		// Was it successful?
 		if (file == NULL) {
 			// Logging
-			ESP_LOGE("FileManager", "Failed creating file %s", fullPath);
+			ESP_LOGE("FilesystemDriver", "Failed creating file %s", fullPath);
 
 			// Free the fullPath
 			free(fullPath);
@@ -283,7 +283,7 @@ bool fileManagerCreateFile(const char* p_path, const Location_t location)
 	return true;
 }
 
-bool fileManagerDoesFileExists(const char* p_path, const Location_t location)
+bool filesystemDoesFileExists(const char* p_path, const Location_t location)
 {
 	// Check if the location is mounted
 	if (isLocationMounted(location)) {
@@ -302,7 +302,7 @@ bool fileManagerDoesFileExists(const char* p_path, const Location_t location)
 	return !result;
 }
 
-FILE* fileManagerOpenFile(const char* p_path, const char* p_mode, const Location_t location)
+FILE* filesystemOpenFile(const char* p_path, const char* p_mode, const Location_t location)
 {
 	// Check if the location is mounted
 	if (!isLocationMounted(location)) {
@@ -321,7 +321,7 @@ FILE* fileManagerOpenFile(const char* p_path, const char* p_mode, const Location
 	// Was it successful?
 	if (file == NULL) {
 		// Logging
-		ESP_LOGE("FileManager", "Failed to open file. Path: %s ; Mode: %s", fullPath, p_mode);
+		ESP_LOGE("FilesystemDriver", "Failed to open file. Path: %s ; Mode: %s", fullPath, p_mode);
 
 		// Free the fullPath
 		free(fullPath);
@@ -331,14 +331,14 @@ FILE* fileManagerOpenFile(const char* p_path, const char* p_mode, const Location
 	}
 
 	// Logging
-	ESP_LOGD("FileManager", "Opened file %s", fullPath);
+	ESP_LOGD("FilesystemDriver", "Opened file %s", fullPath);
 
 	// Yes, free the path and return the file
 	free(fullPath);
 	return file;
 }
 
-bool fileManagerDeleteFile(const char* p_path, const Location_t location)
+bool filesystemDeleteFile(const char* p_path, const Location_t location)
 {
 	// Check if the location is mounted
 	if (isLocationMounted(location)) {
@@ -352,11 +352,11 @@ bool fileManagerDeleteFile(const char* p_path, const Location_t location)
 	const bool result = !remove(fullPath); // 0 -> success ;  1 -> error
 	if (result) {
 		// Logging
-		ESP_LOGI("FileManager", "Deleted file: %s", fullPath);
+		ESP_LOGI("FilesystemDriver", "Deleted file: %s", fullPath);
 	}
 	else {
 		// Logging
-		ESP_LOGW("FileManager", "Failed deleting file: %s", fullPath);
+		ESP_LOGW("FilesystemDriver", "Failed deleting file: %s", fullPath);
 	}
 
 	// Free the path
@@ -403,7 +403,7 @@ bool fileManagerCreateDir(const char* p_path)
 	// Did it fail?
 	if (!result) {
 		// Logging
-		ESP_LOGW("FileManager", "Failed to create directory: %s", fullPath);
+		ESP_LOGW("FilesystemDriver", "Failed to create directory: %s", fullPath);
 	}
 
 	// Free fullPath
@@ -428,7 +428,7 @@ bool fileManagerDeleteDir(const char* p_path)
 	// Did it fail?
 	if (!result) {
 		// Logging
-		ESP_LOGW("FileManager", "Failed to delete directory: %s", fullPath);
+		ESP_LOGW("FilesystemDriver", "Failed to delete directory: %s", fullPath);
 	}
 
 	// Free fullPath
@@ -437,7 +437,7 @@ bool fileManagerDeleteDir(const char* p_path)
 	return result;
 }
 
-void fileManagerTest()
+void filesystemTest()
 {
 	// Slots for two files
 	FILE* file1 = NULL;
@@ -445,15 +445,15 @@ void fileManagerTest()
 	FILE* file3 = NULL;
 
 	// Create two files, one on each internal partition
-	if (fileManagerCreateFile("hello.txt", CONFIG_PARTITION)) {
-		file1 = fileManagerOpenFile("hello.txt", "a+", CONFIG_PARTITION);
+	if (filesystemCreateFile("hello.txt", CONFIG_PARTITION)) {
+		file1 = filesystemOpenFile("hello.txt", "a+", CONFIG_PARTITION);
 	}
-	if (fileManagerCreateFile("hello.txt", DATA_PARTITION)) {
-		file2 = fileManagerOpenFile("hello.txt", "a+", DATA_PARTITION);
+	if (filesystemCreateFile("hello.txt", DATA_PARTITION)) {
+		file2 = filesystemOpenFile("hello.txt", "a+", DATA_PARTITION);
 	}
 	// And one on the SD Card
-	if (fileManagerCreateFile("hello.txt", SD_CARD)) {
-		file3 = fileManagerOpenFile("hello.txt", "a+", SD_CARD);
+	if (filesystemCreateFile("hello.txt", SD_CARD)) {
+		file3 = filesystemOpenFile("hello.txt", "a+", SD_CARD);
 	}
 
 	/* TESTING */
@@ -470,21 +470,21 @@ void fileManagerTest()
 	}
 
 	// Delete the files
-	fileManagerDeleteFile("hello.txt", CONFIG_PARTITION);
-	fileManagerDeleteFile("hello.txt", DATA_PARTITION);
-	fileManagerDeleteFile("hello.txt", SD_CARD);
+	filesystemDeleteFile("hello.txt", CONFIG_PARTITION);
+	filesystemDeleteFile("hello.txt", DATA_PARTITION);
+	filesystemDeleteFile("hello.txt", SD_CARD);
 
 	// Create a directory "location" on the SD Card
 	if (fileManagerCreateDir("location")) {
-		ESP_LOGI("FileManager", "The location on the SD Card was created successfully!");
+		ESP_LOGI("FilesystemDriver", "The location on the SD Card was created successfully!");
 	}
 
 	// Check if these locations exists on the SD Card
 	if (fileManagerDoesDirectoryExist("location")) {
-		ESP_LOGI("FileManager", "The location exists on the SD Card!");
+		ESP_LOGI("FilesystemDriver", "The location exists on the SD Card!");
 	}
 	else {
-		ESP_LOGW("FileManager", "The location does not exist on the SD Card!");
+		ESP_LOGW("FilesystemDriver", "The location does not exist on the SD Card!");
 	}
 
 	// Reset the file pointers
@@ -492,8 +492,8 @@ void fileManagerTest()
 	file2 = NULL;
 
 	// Create new file in the newly created directory
-	if (fileManagerCreateFile("location/hello.txt", SD_CARD)) {
-		file1 = fileManagerOpenFile("hello.txt", "a+", SD_CARD);
+	if (filesystemCreateFile("location/hello.txt", SD_CARD)) {
+		file1 = filesystemOpenFile("hello.txt", "a+", SD_CARD);
 	}
 
 	// Close the file again
@@ -502,13 +502,13 @@ void fileManagerTest()
 	}
 
 	// Then delete it
-	fileManagerDeleteFile("location/hello.txt", SD_CARD);
+	filesystemDeleteFile("location/hello.txt", SD_CARD);
 
 	// Then delete the directory
 	if (fileManagerDeleteDir("location")) {
-		ESP_LOGI("FileManager", "Successfully deleted directory on SD Card!");
+		ESP_LOGI("FilesystemDriver", "Successfully deleted directory on SD Card!");
 	}
 	else {
-		ESP_LOGW("FileManager", "Failed to delete the directory on the SD Card");
+		ESP_LOGW("FilesystemDriver", "Failed to delete the directory on the SD Card");
 	}
 }

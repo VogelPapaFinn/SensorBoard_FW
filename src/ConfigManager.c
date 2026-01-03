@@ -1,7 +1,7 @@
 #include "ConfigManager.h"
 
 // Project includes
-#include "FileManager.h"
+#include "FilesystemDriver.h"
 
 // C includes
 #include <stdio.h>
@@ -38,7 +38,7 @@ static cJSON* g_wifiConfigurationRoot = NULL;
 static bool fileToJson(const char* p_fileName, char* p_buffer, const uint16_t bufferLen, cJSON** p_root)
 {
 	// Open the file
-	FILE* file = fileManagerOpenFile(p_fileName, "r", CONFIG_PARTITION);
+	FILE* file = filesystemOpenFile(p_fileName, "r", CONFIG_PARTITION);
 
 	// Did that work?
 	if (file == NULL) {
@@ -69,7 +69,7 @@ static bool fileToJson(const char* p_fileName, char* p_buffer, const uint16_t bu
 static bool jsonToFile(const cJSON* p_root, const char* p_fileName)
 {
 	// Open the file
-	FILE* file = fileManagerOpenFile(p_fileName, "w", CONFIG_PARTITION);
+	FILE* file = filesystemOpenFile(p_fileName, "w", CONFIG_PARTITION);
 
 	// Did that work?
 	if (file == NULL) {
@@ -155,9 +155,18 @@ bool loadConfigFile(char* p_name, const ConfigFile_t handleAs)
 		// Free the memory
 		free((void*)path);
 
+		// Save if it was successful
+		g_configAvailable[handleAs] = result;
+
 		// Then return result
 		return result;
 	}
+
+	// Save if it was successful
+	g_configAvailable[handleAs] = result;
+
+	// Logging
+	ESP_LOGI("ConfigManager", "Successfully loaded config file %s", p_name);
 
 	return true;
 }

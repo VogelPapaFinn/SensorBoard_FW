@@ -14,21 +14,25 @@ set(FILES
         "../include/ConfigManager.h"
         "ConfigManager.c"
 
+        # Display Manager
+        "../include/DisplayManager.h"
+        "DisplayManager.c"
+
         # File Manager
-        "../include/FileManager.h"
-        "FileManager.c"
+        "../include/FilesystemDriver.h"
+        "FilesystemDriver.c"
 
         # Queue System
-        "../include/QueueSystem.h"
-        "QueueSystem.c"
+        "../include/EventQueues.h"
+        "EventQueues.c"
 
         # Sensor Manager
         "../include/SensorManager.h"
         "SensorManager.c"
 
-        # Wifi
-        "../include/Wifi.h"
-        "Wifi.c"
+        # Wifi Driver
+        "../include/WifiDriver.h"
+        "WifiDriver.c"
 )
 
 idf_component_register(SRCS ${FILES}
