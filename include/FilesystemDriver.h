@@ -7,6 +7,7 @@
 /*
  *	Public typedefs
  */
+//! \brief Typedef Enum indicating a location/partition on the filesystem
 typedef enum
 {
 	CONFIG_PARTITION,

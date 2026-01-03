@@ -1,78 +1,332 @@
 #include "SensorManager.h"
 
-// C includes
-#include <math.h>
+// Project includes
+#include "can.h"
 
 // espidf includes
-#include <driver/gpio.h>
-#include <driver/pulse_cnt.h>
-#include <esp_adc/adc_oneshot.h>
-#include <esp_timer.h>
-#include <esp_log.h>
+#include "driver/gpio.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_oneshot.h"
+#include "esp_log.h"
+#include "esp_timer.h"
 
+// FreeRTOS includes
+#include "freertos/FreeRTOS.h"
 
-#define READ_SENSOR_DATA_INTERVAL_MS 50
+/*
+ *	Private defines
+ */
+#define AMOUNT_OF_MANUAL_SENSORS 4
+#define AMOUNT_OF_AUTOMATIC_SENSORS 4
+
+#define MANUAL_SENSOR_READ_INTERVALL_HZ 10
 #define SEND_SENSOR_DATA_INTERVAL_MS 100
 
-// The ADC handles
-adc_oneshot_unit_handle_t g_adc1Handle;
-adc_oneshot_unit_handle_t g_adc2Handle;
+#define GPIO_SPEED GPIO_NUM_14
+#define GPIO_RPM GPIO_NUM_21
 
-// Where the ADC's correctly initialized
-bool g_initAdc2Failed = false;
+/*
+ *	Prototypes
+ */
+//! \brief Function used as Task to periodically read the manual sensors
+//! \param p_arg Unused pointer needed for FreeRTOS to accept the function as task
+static void readSensorsTask(void* p_arg);
 
-// Oil pressure stuff
-bool g_oilPressure = false;
-adc_cali_handle_t g_adc2OilCalibHandle;
+//! \brief Calibrates the specified sensors ADC channel
+//! \param sensor The sensor which channel should be calibrated
+//! \retval Boolean indicating if the calibration was applied successfully
+static bool calibrateSensor(ManualReadSensor_t sensor);
 
-// Fuel level stuff
-uint8_t g_fuelLevelInPercent = 0;
-float g_fuelLevelResistance = 0.0f;
-adc_cali_handle_t g_adc2FuelCalibHandle;
+//! \brief Removes the calibration from the specified sensors ADC channel
+static void deleteCalibrationFromSensor(ManualReadSensor_t sensor);
 
-// Water temperature stuff
-uint8_t g_waterTemp = 0;
-float g_waterTemperatureResistance = 0.0f;
-adc_cali_handle_t g_adc2WaterCalibHandle;
+//! \brief ISR which is triggered when a falling edge was recognized on the Speed GPIO
+static void IRAM_ATTR speedISR();
+//! \brief ISR which is triggered when a falling edge was recognized on the RPM GPIO
+static void IRAM_ATTR rpmISR();
+//! \brief ISR which is triggered when a new edge was recognized on the LINDICATOR GPIO
+static void IRAM_ATTR lIndicatorISR();
+//! \brief ISR which is triggered when a new edge was recognized on the RINDICATOR GPIO
+static void IRAM_ATTR rIndicatorISR();
 
-// Speed stuff
-static int g_speedInHz = -1;
-uint8_t g_vehicleSpeed = 0;
-int64_t g_lastTimeOfFallingEdgeSpeed = 0;
-int64_t g_timeOfFallingEdgeSpeed = 0;
-static bool g_speedIsrActive = false;
+//! \brief ISR used to send all available sensor data periodically via CAN
+//! \param p_arg Unused pointer needed for espidf so this can be used as timer ISR
+static void sendSensorDataISR(void* p_arg);
 
-// RPM stuff
-uint16_t g_vehicleRPM = 0;
-int g_rpmInHz = -1;
-int64_t g_lastTimeOfFallingEdgeRPM = 0;
-int64_t g_timeOfFallingEdgeRPM = 0;
-static bool g_rpmIsrActive = false;
+/*
+ *	Private variables
+ */
+//! \brief Boolean indicating if the initialization of the ADC2 was successful
+static bool g_adc2Initialized = false;
+//! \brief The handle of the ADC2
+static adc_oneshot_unit_handle_t g_adc2Handle;
+//! \brief The configuration which is used for all ADC1 and ADC2 channels
+static adc_oneshot_chan_cfg_t g_adcChannelConfig = {
+	.bitwidth = ADC_BITWIDTH_DEFAULT,
+	.atten = ADC_ATTEN_DB_12,
+};
 
-// Internal temperature sensor stuff
-int g_intTempRawAdcValue = 0;
-int g_intTempVoltageMV = 0;
-double g_internalTemperature = 0.0;
-adc_cali_handle_t g_adc2IntTempCalibHandle;
+//! \brief Map which contains the calibration handle for each manual sensor
+static adc_cali_handle_t g_calibrationHandles[AMOUNT_OF_MANUAL_SENSORS];
+//! \brief Map which contains the GPIO pin for each manual sensor
+static const gpio_num_t g_manualSensorGPIOs[AMOUNT_OF_MANUAL_SENSORS] = {
+	[OIL_PRESSURE] = GPIO_NUM_12,
+	[FUEL_LEVEL] = GPIO_NUM_11,
+	[WATER_TEMP] = GPIO_NUM_13,
+	[INTERNAL_TEMP] = GPIO_NUM_7,
+};
+//! \brief Map which contains the ADC2 channel for each manual sensor
+static const gpio_num_t g_manualSensorAdcChannels[AMOUNT_OF_MANUAL_SENSORS] = {
+	[OIL_PRESSURE] = ADC_CHANNEL_1,
+	[FUEL_LEVEL] = ADC_CHANNEL_0,
+	[WATER_TEMP] = ADC_CHANNEL_2,
+	[INTERNAL_TEMP] = ADC_CHANNEL_6,
+};
+//! \brief Map which contains booleans indicating if the manual sensors are being currently read
+static bool g_manualSensorsReadingStatus[AMOUNT_OF_MANUAL_SENSORS];
 
-// Indicators
-bool g_leftIndicator = false;
-adc_cali_handle_t g_adc2LeftIndicatorHandle;
-bool g_rightIndicator = false;
-adc_cali_handle_t g_adc2RightIndicatorHandle;
+//! \brief Boolean indicating if the initialization of the ADC1 was successful
+static bool g_adc1Initialized = false;
+//! \brief The handle of the ADC1
+static adc_oneshot_unit_handle_t g_adc1Handle;
 
-#include "EventQueues.h"
-//! \brief Connected to a Timer timeout to read the data from all sensor
-void readSensorDataISR(void* p_arg)
+//! \brief Bool indicating if the ISR service was installed successfully. If not all
+//! automatic sensors are NOT available
+static bool g_isrServiceInstalled = false;
+//! \brief Map which contains the GPIO pin for each automatic sensor
+static const gpio_num_t g_automaticSensorGPIOs[AMOUNT_OF_AUTOMATIC_SENSORS] = {
+	[SPEED] = GPIO_NUM_3,
+	[RPM] = GPIO_NUM_21,
+	[L_INDICATOR] = GPIO_NUM_10,
+	[R_INDICATOR] = GPIO_NUM_9,
+};
+//! \brief Map which contains the edge on which the ISR for each automatic sensor is triggered
+static const gpio_int_type_t g_automaticSensorEdgeTrigger[AMOUNT_OF_AUTOMATIC_SENSORS] = {
+	[SPEED] = GPIO_INTR_NEGEDGE,
+	[RPM] = GPIO_INTR_NEGEDGE,
+	[L_INDICATOR] = GPIO_INTR_ANYEDGE,
+	[R_INDICATOR] = GPIO_INTR_ANYEDGE,
+};
+//! \brief Map which contains the ISR function for each automatic sensor
+static const gpio_isr_t g_automaticSensorISR[AMOUNT_OF_AUTOMATIC_SENSORS] = {
+	[SPEED] = speedISR,
+	[RPM] = rpmISR,
+	[L_INDICATOR] = lIndicatorISR,
+	[R_INDICATOR] = rIndicatorISR,
+};
+//! \brief Map which contains booleans indicating if the automatic sensor ISRs are currently active
+static bool g_automaticSensorsReadingStatus[AMOUNT_OF_AUTOMATIC_SENSORS];
+
+//! \brief Handle of timer which is used to periodically send all available sensor data via CAN
+static esp_timer_handle_t g_sendSensorDataTimerHandle;
+//! \brief The configuration of the timer which is used to periodically send all available sensor data via CAN
+static const esp_timer_create_args_t g_sendSensorDataTimerConf = {.callback = &sendSensorDataISR,
+																  .name = "Send Sensor Data Timer"};
+
+//! \brief Integer containing the last time a falling edge on the speed GPIO was registered
+static int64_t g_lastTimeOfFallingEdgeSpeed = 0;
+//! \brief Integer containing the current time a falling edge on the speed GPIO was registered
+static int64_t g_timeOfFallingEdgeSpeed = 0;
+
+//! \brief Integer containing the last time a falling edge on the rpm GPIO was registered
+static int64_t g_lastTimeOfFallingEdgeRPM = 0;
+//! \brief Integer containing the current time a falling edge on the rpm GPIO was registered
+static int64_t g_timeOfFallingEdgeRPM = 0;
+
+//! \brief 1 Byte integer representing the vehicle speed in kmh
+static uint8_t g_vehicleSpeed;
+//! \brief 2 Byte integer representing the rpm
+static uint16_t g_vehicleRPM;
+//! \brief 1 Byte integer representing the fuel level in percent
+static uint8_t g_fuelLevelInPercent;
+//! \brief 1 Byte integer representing the water temperature
+static uint8_t g_waterTemp;
+//! \brief Bool indicating if oil pressure is high enough
+static bool g_oilPressure;
+//! \brief Bool indicating if the left indicator is active
+static bool g_isLeftIndicatorActive = false;
+//! \brief Bool indicating if the right indicator is active
+static bool g_isRightIndicatorActive = false;
+
+/*
+ *	Private functions
+*/
+static void readSensorsTask(void* p_arg)
 {
-	sensorManagerReadAllSensors();
-}
-static esp_timer_handle_t g_readSensorDataTimerHandle;
-static const esp_timer_create_args_t g_readSensorDataTimerConf = {.callback = &readSensorDataISR,
-																  .name = "Read Sensor Data Timer"};
+	if (!g_adc2Initialized) {
+		return;
+	}
 
-#include "can.h"
-void sendSensorDataISR(void* p_arg)
+	// Variables we save each adc poll into
+	int oilPressure, fuelLevel, waterTemp, internalTemp;
+
+	// Read sensors using EMA
+	// EMA -> CurrentValue = (NewlyReadValue * Alpha) + (CurrentValue * (1 - Alpha))
+	while (true) {
+		// Read Oil Pressure
+		if (g_manualSensorsReadingStatus[OIL_PRESSURE]) {
+
+		}
+
+		// Read Fuel Level
+		if (g_manualSensorsReadingStatus[FUEL_LEVEL]) {
+
+		}
+
+		// Read Water Temp
+		if (g_manualSensorsReadingStatus[WATER_TEMP]) {
+
+		}
+
+		// Read Internal Temp
+		if (g_manualSensorsReadingStatus[INTERNAL_TEMP]) {
+
+		}
+
+		// Sleep for the specified length
+		vTaskDelay(pdMS_TO_TICKS((1 / MANUAL_SENSOR_READ_INTERVALL_HZ) * 1000)); // HZ to MS
+	}
+}
+
+static bool calibrateSensor(const ManualReadSensor_t sensor)
+{
+	// Apply curve calibration
+	const adc_cali_curve_fitting_config_t curveCalibrationConfig = {
+		.unit_id = ADC_UNIT_2,
+		.chan = g_manualSensorAdcChannels[sensor],
+		.atten = ADC_ATTEN_DB_12,
+		.bitwidth = ADC_BITWIDTH_DEFAULT,
+	};
+	if (adc_cali_create_scheme_curve_fitting(&curveCalibrationConfig, &g_calibrationHandles[sensor]) != ESP_OK) {
+		return false;
+	}
+
+	return true;
+}
+
+static void deleteCalibrationFromSensor(const ManualReadSensor_t sensor)
+{
+	adc_cali_delete_scheme_curve_fitting(g_calibrationHandles[sensor]);
+}
+
+bool startReadingManualSensor(const ManualReadSensor_t sensor)
+{
+	if (!g_adc2Initialized || g_manualSensorsReadingStatus[sensor]) {
+		return false;
+	}
+
+	// Set up the GPIO
+	gpio_set_direction(g_manualSensorGPIOs[sensor], GPIO_MODE_INPUT);
+	gpio_set_pull_mode(g_manualSensorGPIOs[sensor], GPIO_PULLDOWN_ONLY);
+
+	// Configure the channel
+	if (adc_oneshot_config_channel(g_adc2Handle, g_manualSensorAdcChannels[sensor], &g_adcChannelConfig) != ESP_OK) {
+		ESP_LOGE("SensorManager", "Failed to start reading manual sensor '%d'!", sensor);
+
+		return false;
+	}
+
+	// Apply the calibration
+	if (!calibrateSensor(sensor)) {
+		ESP_LOGE("SensorManager", "Failed to apply calibration to manual sensor '%d'!", sensor);
+
+		return false;
+	}
+
+	// Start reading the sensor
+	g_manualSensorsReadingStatus[sensor] = true;
+	return true;
+}
+
+void stopReadingManualSensor(const ManualReadSensor_t sensor)
+{
+	if (!g_adc2Initialized || !g_manualSensorsReadingStatus[sensor]) {
+		return;
+	}
+
+	// Disable reading
+	g_manualSensorsReadingStatus[sensor] = false;
+
+	// Remove the calibration from the channel
+	deleteCalibrationFromSensor(sensor);
+}
+
+bool startReadingAutomaticSensor(const AutomaticReadSensor_t sensor)
+{
+	if (!g_isrServiceInstalled) {
+		return false;
+	}
+
+	// Setup gpio
+	gpio_set_direction(g_automaticSensorGPIOs[sensor], GPIO_MODE_INPUT);
+	gpio_set_pull_mode(g_automaticSensorGPIOs[sensor], GPIO_PULLDOWN_ONLY);
+	gpio_set_intr_type(g_automaticSensorGPIOs[sensor], g_automaticSensorEdgeTrigger[sensor]);
+
+	// Activate the ISR
+	if (gpio_isr_handler_add(g_automaticSensorGPIOs[sensor], g_automaticSensorISR[sensor], NULL) == ESP_OK) {
+		// Everything worked
+		g_automaticSensorsReadingStatus[sensor] = true;
+	}
+	else {
+		// It failed
+		g_automaticSensorsReadingStatus[sensor] = false;
+
+		// Logging
+		ESP_LOGE("SensorManager", "Failed to enable the ISR for automatic sensor '%d'!", sensor);
+		return false;
+	}
+
+	return true;
+}
+
+bool stopReadingAutomaticSensor(const AutomaticReadSensor_t sensor)
+{
+	if (!g_isrServiceInstalled) {
+		return true;
+	}
+
+	// Deactivate the ISR
+	if (gpio_isr_handler_remove(g_automaticSensorGPIOs[sensor]) == ESP_OK) {
+		// Everything worked
+		g_automaticSensorsReadingStatus[sensor] = false;
+
+		// Reset gpio
+		gpio_set_direction(g_automaticSensorGPIOs[sensor], GPIO_MODE_DISABLE);
+
+		return true;
+	}
+
+	// It failed
+	g_automaticSensorsReadingStatus[sensor] = true;
+	return false;
+}
+
+/*
+ *	Private ISR's
+ */
+static void IRAM_ATTR speedISR()
+{
+	g_lastTimeOfFallingEdgeSpeed = g_timeOfFallingEdgeSpeed;
+	g_timeOfFallingEdgeSpeed = esp_timer_get_time();
+}
+
+static void IRAM_ATTR rpmISR()
+{
+	g_lastTimeOfFallingEdgeRPM = g_timeOfFallingEdgeRPM;
+	g_timeOfFallingEdgeRPM = esp_timer_get_time();
+}
+
+static void IRAM_ATTR lIndicatorISR()
+{
+	g_isLeftIndicatorActive = gpio_get_level(g_automaticSensorGPIOs[L_INDICATOR]);
+}
+
+static void IRAM_ATTR rIndicatorISR()
+{
+	g_isRightIndicatorActive = gpio_get_level(g_automaticSensorGPIOs[R_INDICATOR]);
+}
+
+static void sendSensorDataISR(void* p_arg)
 {
 	// Create the buffer for the answer CAN frame
 	uint8_t* buffer = malloc(sizeof(uint8_t) * 8);
@@ -85,8 +339,8 @@ void sendSensorDataISR(void* p_arg)
 	buffer[3] = g_fuelLevelInPercent;
 	buffer[4] = g_waterTemp;
 	buffer[5] = g_oilPressure;
-	buffer[6] = g_leftIndicator;
-	buffer[7] = g_rightIndicator;
+	buffer[6] = g_isLeftIndicatorActive;
+	buffer[7] = g_isRightIndicatorActive;
 
 	// Create the CAN answer frame
 	twai_frame_t* sensorDataFrame = generateCanFrame(CAN_MSG_SENSOR_DATA, g_ownCanSenderId, &buffer, 8);
@@ -94,141 +348,26 @@ void sendSensorDataISR(void* p_arg)
 	// Send the frame
 	queueCanBusMessage(sensorDataFrame, true, true);
 }
-static esp_timer_handle_t g_sendSensorDataTimerHandle;
-static const esp_timer_create_args_t g_sendSensorDataTimerConf = {.callback = &sendSensorDataISR,
-																  .name = "Send Sensor Data Timer"};
-
 
 /*
- *	ISR's
- */
-//! \brief ISR for the speed, triggered everytime there is a falling edge
-static void IRAM_ATTR speedInterruptHandler()
+ *	Public function implementations
+*/
+void sensorManagerInit()
 {
-	g_lastTimeOfFallingEdgeSpeed = g_timeOfFallingEdgeSpeed;
-	g_timeOfFallingEdgeSpeed = esp_timer_get_time();
-}
+	// Initialize the ADC1
+	const adc_oneshot_unit_init_cfg_t adc1InitConfig = {
+		.unit_id = ADC_UNIT_1,
+		.ulp_mode = ADC_ULP_MODE_DISABLE
+	};
+	if (adc_oneshot_new_unit(&adc1InitConfig, &g_adc1Handle) != ESP_OK) {
+		// Logging
+		ESP_LOGE("SensorManager", "Failed to initialize ADC1!");
 
-//! \brief ISR for the rpm, triggered everytime there is a falling edge
-static void IRAM_ATTR rpmInterruptHandler()
-{
-	g_lastTimeOfFallingEdgeRPM = g_timeOfFallingEdgeRPM;
-	g_timeOfFallingEdgeRPM = esp_timer_get_time();
-}
+		return;
+	}
 
-
-/*
- *	Private Functions
- */
-
-//! \brief Calculates the resistance of a voltage divider
-//! \param preR1VoltageV The original voltage the divider works with [in Volts] e.g. 3.3V
-//! \param voltageMV The measured voltage between R1 and R2 [in Millivolts]
-//! \param r1 The resistance of R1
-//! \retval The calculated resistance of R2 as float
-float calculateVoltageDividerR2(const float preR1VoltageV, const int voltageMV, const int r1)
-{
-	const float vIn = preR1VoltageV;
-	const float vOut = (float)voltageMV / 1000.0f;
-	const float r = (float)r1;
-
-	// R2 = R1 * (voltageMV / (preR1VoltageV - voltageMV))
-	return r * (vOut / (vIn - vOut));
-}
-
-//! \brief Calculates the fuel level in PERCENT from the measured R2 resistance.
-//! It uses a non-linear function as the fuel level sensor output is not proportional
-//! to the fuel level.
-//! \retval The fuel level in PERCENT as int
-//! TODO: Implement the non-linear function!
-int calculateFuelLevelFromResistance()
-{
-	float resistance = g_fuelLevelResistance;
-
-	// Remove the resistance offset
-	resistance -= FUEL_LEVEL_OFFSET;
-
-	// Check if its < 0
-	if (resistance < 0.0f) resistance = 0.0f;
-
-	// Check if its > FUEL_LEVEL_TO_PERCENTAGE - FUEL_LEVEL_OFFSET
-	if (resistance > FUEL_LEVEL_TO_PERCENTAGE - FUEL_LEVEL_OFFSET)
-		resistance = FUEL_LEVEL_TO_PERCENTAGE -
-			FUEL_LEVEL_OFFSET;
-
-	// Then convert it to percent and return it
-	return (int)((resistance / FUEL_LEVEL_TO_PERCENTAGE) * 100.0f);
-}
-
-//! \brief Calculates the water temperature in degree Celsius from the measured R2 resistance.
-//! It uses a non-linear function as the water temp sensor output is not proportional
-//! to the water temperature.
-//! \retval The water temperature in degree Celsius as float
-//! TODO: Implement the non-linear function!
-float calculateWaterTemperatureFromResistance()
-{
-	float resistance = g_waterTemperatureResistance;
-
-	// Remove the resistance offset
-	resistance -= FUEL_LEVEL_OFFSET;
-
-	// Check if its < 0
-	if (resistance < 0.0f) resistance = 0.0f;
-
-	// Then convert it to percent and return it
-	return (resistance / FUEL_LEVEL_TO_PERCENTAGE * 100.0f);
-}
-
-//! \brief Calculates the speed in kmh from the measured frequency.
-//! \retval The speed in kmh
-//! TODO: Implement actual conversion
-float calculateSpeedFromFrequency()
-{
-	return (float)g_speedInHz;
-}
-
-//! \brief Calculates the rpm from the measured frequency.
-//! \retval The rpm's
-int calculateRpmFromFrequency()
-{
-	double multiplier = 0.0;
-
-	// Get the multiplier
-	if (g_rpmInHz <= 0)
-		return -1;
-	if (g_rpmInHz <= 8)
-		multiplier = 50.0;
-	else if (g_rpmInHz <= 11)
-		multiplier = 45.45;
-	else if (g_rpmInHz <= 17)
-		multiplier = 41.18;
-	else if (g_rpmInHz <= 25)
-		multiplier = 40.0;
-	else if (g_rpmInHz <= 56)
-		multiplier = 34.48;
-	else if (g_rpmInHz <= 92)
-		multiplier = 32.61;
-	else if (g_rpmInHz <= 123)
-		multiplier = 32.52;
-	else if (g_rpmInHz <= 157)
-		multiplier = 31.85;
-	else if (g_rpmInHz <= 188)
-		multiplier = 31.91;
-	else if (g_rpmInHz <= 220)
-		multiplier = 31.82;
-	else if (g_rpmInHz <= 262)
-		multiplier = 30.54;
-
-	// Calculate the rpm and return it
-	return (int)((double)g_rpmInHz * multiplier);
-}
-
-/*
- *	Function implementations
- */
-bool sensorManagerInit(void)
-{
-	bool success = true;
+	// Initialization successful
+	g_adc1Initialized = true;
 
 	// Initialize the ADC2
 	const adc_oneshot_unit_init_cfg_t adc2InitConfig = {
@@ -236,438 +375,145 @@ bool sensorManagerInit(void)
 		.ulp_mode = ADC_ULP_MODE_DISABLE
 	};
 	if (adc_oneshot_new_unit(&adc2InitConfig, &g_adc2Handle) != ESP_OK) {
-		// Init was NOT successful!
-		g_initAdc2Failed = true;
-
 		// Logging
-		ESP_LOGW("SensorManager", "Failed to initialize ADC2!");
+		ESP_LOGE("SensorManager", "Failed to initialize ADC2!");
 
-		// Initialization failed
-		return false;
+		return;
 	}
 
-	/*
-	 *	Configure the oil pressure ADC2 channel
-	 */
+	// Initialization successful
+	g_adc2Initialized = true;
 
-	// Configure oil pressure GPIO
-	gpio_set_direction(GPIO_OIL_PRESSURE, GPIO_MODE_INPUT);
-	gpio_set_pull_mode(GPIO_OIL_PRESSURE, GPIO_PULLDOWN_ONLY);
-
-	// Create the config
-	const adc_oneshot_chan_cfg_t adc2OilConfig = {
-		.bitwidth = ADC_BITWIDTH_12,
-		.atten = ADC_ATTEN_DB_2_5,
-	};
-	success &= adc_oneshot_config_channel(g_adc2Handle, ADC_CHANNEL_OIL_PRESSURE, &adc2OilConfig) ==
-		ESP_OK;
-
-	// Create the calibration curve config
-	const adc_cali_curve_fitting_config_t oilCaliConfig = {
-		.unit_id = ADC_UNIT_2,
-		.chan = ADC_CHANNEL_OIL_PRESSURE,
-		.atten = ADC_ATTEN_DB_2_5,
-		.bitwidth = ADC_BITWIDTH_12,
-	};
-
-	// Create calibration curve fitting
-	if (adc_cali_create_scheme_curve_fitting(&oilCaliConfig, &g_adc2OilCalibHandle) != ESP_OK) {
-		// Logging
-		ESP_LOGE("SensorManager", "'adc_cali_create_scheme_curve_fitting' for the oil pressure channel FAILED");
-	}
-
-	/*
-	 *	Configure the fuel level ADC2 channel
-	 */
-
-	// Configure oil pressure GPIO
-	gpio_set_direction(GPIO_FUEL_LEVEL, GPIO_MODE_INPUT);
-	gpio_set_pull_mode(GPIO_FUEL_LEVEL, GPIO_PULLDOWN_ONLY);
-
-	// Create the config
-	const adc_oneshot_chan_cfg_t adc2FuelConfig = {
-		.bitwidth = ADC_BITWIDTH_12,
-		.atten = ADC_ATTEN_DB_2_5,
-	};
-	success &= adc_oneshot_config_channel(g_adc2Handle, ADC_CHANNEL_FUEL_LEVEL, &adc2FuelConfig) ==
-		ESP_OK;
-
-	// Create the calibration curve config
-	const adc_cali_curve_fitting_config_t fuelCaliConfig = {
-		.unit_id = ADC_UNIT_2,
-		.chan = ADC_CHANNEL_FUEL_LEVEL,
-		.atten = ADC_ATTEN_DB_2_5,
-		.bitwidth = ADC_BITWIDTH_12,
-	};
-
-	// Create calibration curve fitting
-	if (adc_cali_create_scheme_curve_fitting(&fuelCaliConfig, &g_adc2FuelCalibHandle) != ESP_OK) {
-		// Logging
-		ESP_LOGE("SensorManager", "'adc_cali_create_scheme_curve_fitting' for the fuel level channel FAILED");
-	}
-
-	/*
-	 *	Configure the water temperature ADC2 channel
-	 */
-
-	// Configure oil pressure GPIO
-	gpio_set_direction(GPIO_WATER_TEMPERATURE, GPIO_MODE_INPUT);
-	gpio_set_pull_mode(GPIO_WATER_TEMPERATURE, GPIO_PULLDOWN_ONLY);
-
-	// Create the config
-	const adc_oneshot_chan_cfg_t adc2WaterConfig = {
-		.bitwidth = ADC_BITWIDTH_12,
-		.atten = ADC_ATTEN_DB_12,
-	};
-	success &= adc_oneshot_config_channel(g_adc2Handle, ADC_CHANNEL_WATER_TEMPERATURE,
-	                                      &adc2WaterConfig) == ESP_OK;
-
-	// Create the calibration curve config
-	const adc_cali_curve_fitting_config_t waterCaliConfig = {
-		.unit_id = ADC_UNIT_2,
-		.chan = ADC_CHANNEL_WATER_TEMPERATURE,
-		.atten = ADC_ATTEN_DB_12,
-		.bitwidth = ADC_BITWIDTH_12,
-	};
-
-	// Create calibration curve fitting
-	if (adc_cali_create_scheme_curve_fitting(&waterCaliConfig, &g_adc2WaterCalibHandle) != ESP_OK) {
-		// Logging
-		ESP_LOGE("SensorManager", "'adc_cali_create_scheme_curve_fitting' for the water temperature channel FAILED");
-	}
-
-	/*
-	 *	Configure the speed interrupt
-	 */
-
-	// Setup gpio
-	gpio_set_direction(GPIO_SPEED, GPIO_MODE_INPUT);
-	gpio_set_pull_mode(GPIO_SPEED, GPIO_PULLDOWN_ONLY);
-	gpio_set_intr_type(GPIO_SPEED, GPIO_INTR_NEGEDGE);
-
-	// Install ISR service
+	// Install ISR service for
+	g_isrServiceInstalled = true;
 	if (gpio_install_isr_service(ESP_INTR_FLAG_IRAM) != ESP_OK) {
 		// Logging
-		ESP_LOGE("SensorManager", "Couldn't install the ISR service. Speed and RPM are unavailable!");
+		ESP_LOGE("SensorManager", "Couldn't install the ISR service. Speed, RPM and Indicators are unavailable!");
+
+		g_isrServiceInstalled = false;
 	}
 
-	// Activate the ISR for measuring the frequency for the speed
-	if (sensorManagerEnableSpeedISR()) {
-		// Everything worked
-		g_speedIsrActive = true;
-	}
-	else {
-		// It failed
-		g_speedIsrActive = false;
+	// Start the read manual sensor task
+	xTaskCreate(&readSensorsTask, "readSensorsTask", 1024, NULL, 0, NULL);
+}
 
-		// Logging
-		ESP_LOGE("SensorManager", "Failed to enable the speed ISR!");
-	}
+bool sensorManagerStartReadingAllSensors()
+{
+	bool success = true;
 
-	/*
-	 *	Configure the rpm interrupt
-	 */
+	// Start the manual sensors
+	success &= startReadingManualSensor(OIL_PRESSURE);
+	success &= startReadingManualSensor(FUEL_LEVEL);
+	success &= startReadingManualSensor(WATER_TEMP);
+	success &= startReadingManualSensor(INTERNAL_TEMP);
 
-	// Setup gpio
-	gpio_set_direction(GPIO_RPM, GPIO_MODE_INPUT);
-	gpio_set_pull_mode(GPIO_RPM, GPIO_PULLDOWN_ONLY);
-	gpio_set_intr_type(GPIO_RPM, GPIO_INTR_NEGEDGE);
-
-	// Activate the ISR for measuring the frequency for the rpm
-	if (sensorManagerEnableRpmISR()) {
-		// Everything worked
-		g_rpmIsrActive = true;
-	}
-	else {
-		// It failed
-		g_rpmIsrActive = false;
-
-		// Logging
-		ESP_LOGE("SensorManager", "Failed to enable the rpm ISR!");
-	}
-
-	/*
-	 *	Configure the internal temperature sensor
-	 */
-
-	// Setup gpio
-	gpio_set_direction(GPIO_NUM_7, GPIO_MODE_INPUT);
-	gpio_set_pull_mode(GPIO_NUM_7, GPIO_PULLDOWN_ONLY);
-
-	// Initialize the ADC2
-	const adc_oneshot_unit_init_cfg_t adc1InitConfig = {
-		.unit_id = ADC_UNIT_1,
-		.ulp_mode = ADC_ULP_MODE_DISABLE
-	};
-	if (adc_oneshot_new_unit(&adc1InitConfig, &g_adc1Handle) != ESP_OK) {
-		// Logging
-		ESP_LOGW("SensorManager", "Failed to initialize ADC1!");
-	}
-
-	// Create the channel config
-	const adc_oneshot_chan_cfg_t adc2IntTempConfig = {
-		.bitwidth = ADC_BITWIDTH_12,
-		.atten = ADC_ATTEN_DB_6,
-	};
-	success &= adc_oneshot_config_channel(g_adc1Handle, ADC_CHANNEL_INT_TEMPERATURE,
-	                                      &adc2IntTempConfig) == ESP_OK;
-
-	// Create the calibration curve config
-	const adc_cali_curve_fitting_config_t intTempCaliConfig = {
-		.unit_id = ADC_UNIT_1,
-		.chan = ADC_CHANNEL_INT_TEMPERATURE,
-		.atten = ADC_ATTEN_DB_6,
-		.bitwidth = ADC_BITWIDTH_12,
-	};
-
-	// Create calibration curve fitting
-	if (adc_cali_create_scheme_curve_fitting(&intTempCaliConfig, &g_adc2IntTempCalibHandle) != ESP_OK) {
-		// Logging
-		ESP_LOGE("SensorManager", "'adc_cali_create_scheme_curve_fitting' for the internal temperature sensor channel FAILED");
-	}
+	// Start the automatic sensors
+	success &= startReadingAutomaticSensor(SPEED);
+	success &= startReadingAutomaticSensor(RPM);
+	success &= startReadingAutomaticSensor(L_INDICATOR);
+	success &= startReadingAutomaticSensor(R_INDICATOR);
 
 	return success;
 }
 
-bool sensorManagerUpdateOilPressure(void)
+bool sensorManagerStopReadingAllSensors()
 {
-	// Was the init successfully?
-	if (g_initAdc2Failed) return false;
+	// Stop the manual sensors
+	stopReadingManualSensor(OIL_PRESSURE);
+	stopReadingManualSensor(FUEL_LEVEL);
+	stopReadingManualSensor(WATER_TEMP);
+	stopReadingManualSensor(INTERNAL_TEMP);
 
-	// Temporary containers
-	int rawAdcValue = 0;
-	int voltage = 0;
+	// Stop the automatic sensors
+	bool success = true;
+	success &= stopReadingAutomaticSensor(SPEED);
+	success &= stopReadingAutomaticSensor(RPM);
+	success &= stopReadingAutomaticSensor(L_INDICATOR);
+	success &= stopReadingAutomaticSensor(R_INDICATOR);
 
-	// Try to read from the ADC
-	if (adc_oneshot_read(g_adc2Handle, ADC_CHANNEL_OIL_PRESSURE, &rawAdcValue) != ESP_OK) {
-		// Log that it failed
-		ESP_LOGW("SensorManager", "Failed to read the oil pressure from the ADC!");
-	}
-
-	// Try to convert the ADC value to a voltage
-	if (adc_cali_raw_to_voltage(g_adc2OilCalibHandle, rawAdcValue, &voltage) != ESP_OK) {
-		// Log that it failed
-		ESP_LOGW("SensorManager", "Failed to calculate the voltage from the ADC value!");
-	}
-
-	// Check the thresholds
-	const bool oldOilPressureValue = g_oilPressure;
-	g_oilPressure = voltage > OIL_LOWER_VOLTAGE_THRESHOLD && voltage < OIL_UPPER_VOLTAGE_THRESHOLD;
-
-	// Did it change?
-	if (oldOilPressureValue != g_oilPressure) {
-		// Logging
-		ESP_LOGD("SensorManager", "Oil pressure changed! From: '%d' to '%d'", oldOilPressureValue, g_oilPressure);
-
-		return true;
-	}
-	return false;
+	return success;
 }
 
-void sensorManagerReadAllSensors()
+bool sensorManagerStartSendingSensorData()
 {
-	sensorManagerUpdateFuelLevel();
-	sensorManagerUpdateInternalTemperature();
-	sensorManagerUpdateOilPressure();
-	sensorManagerUpdateRPM();
-	sensorManagerUpdateSpeed();
-	sensorManagerUpdateSpeed();
-}
-
-bool sensorManagerUpdateFuelLevel(void)
-{
-	// Was the init successfully?
-	if (g_initAdc2Failed) return false;
-
-	// Temporary containers
-	int rawAdcValue = 0;
-	int voltage = 0;
-
-	// Try to read from the ADC
-	if (adc_oneshot_read(g_adc2Handle, ADC_CHANNEL_FUEL_LEVEL, &rawAdcValue) != ESP_OK) {
-		// Log that it failed
-		ESP_LOGW("SensorManager", "Failed to read the fuel level from the ADC!");
-	}
-
-	// Try to convert the ADC value to a voltage
-	if (adc_cali_raw_to_voltage(g_adc2FuelCalibHandle, rawAdcValue, &voltage) != ESP_OK) {
-		// Log that it failed
-		ESP_LOGW("SensorManager", "Failed to calculate the voltage from the ADC value!");
-	}
-
-	// Calculate resistance
-	g_fuelLevelResistance = calculateVoltageDividerR2(OIL_FUEL_WATER_VOLTAGE_V, voltage, OIL_FUEL_R1);
-
-	// Calculate the fuel level from the calculated resistance
-	const int oldFuelLevelValue = g_fuelLevelInPercent;
-	g_fuelLevelInPercent = calculateFuelLevelFromResistance();
-
-	// Did it change?
-	if (oldFuelLevelValue != g_fuelLevelInPercent) {
-		// Logging
-		ESP_LOGD("SensorManager", "Fuel level changed! From: '%d percent' to '%d percent'", oldFuelLevelValue, g_fuelLevelInPercent);
-
-		return true;
-	}
-	return false;
-}
-
-bool sensorManagerUpdateWaterTemperature(void)
-{
-	// Was the init successfully?
-	if (g_initAdc2Failed) return false;
-
-	// Temporary containers
-	int rawAdcValue = 0;
-	int voltage = 0;
-
-	// Try to read from the ADC
-	if (adc_oneshot_read(g_adc2Handle, ADC_CHANNEL_WATER_TEMPERATURE, &rawAdcValue) != ESP_OK) {
-		// Log that it failed
-		ESP_LOGW("SensorManager", "Failed to read the water temperature from the ADC!");
-	}
-
-	// Try to convert the ADC value to a voltage
-	if (adc_cali_raw_to_voltage(g_adc2WaterCalibHandle, rawAdcValue, &voltage) != ESP_OK) {
-		// Log that it failed
-		ESP_LOGW("SensorManager", "Failed to calculate the voltage from the ADC value!");
-	}
-
-	// Calculate resistance
-	g_waterTemperatureResistance = calculateVoltageDividerR2(OIL_FUEL_WATER_VOLTAGE_V, voltage, WATER_R1);
-
-	// Calculate the water temperature from the calculated resistance
-	const float oldWaterTemperatureValue = g_waterTemp;
-	g_waterTemp = (uint8_t)calculateWaterTemperatureFromResistance();
-
-	// Did it change?
-	if (oldWaterTemperatureValue != (float)g_waterTemp) {
-		// Logging
-		ESP_LOGD("SensorManager", "Water temperature changed! From: '%d °C' to '%d °C'", oldWaterTemperatureValue, g_waterTemp);
-
-		return true;
-	}
-	return false;
-}
-
-bool sensorManagerEnableSpeedISR()
-{
-	ESP_LOGI("SensorManager", "sensorManagerEnableSpeedISR");
-	if (g_readSensorDataTimerHandle == NULL) {
-		esp_timer_create(&g_readSensorDataTimerConf, &g_readSensorDataTimerHandle);
-	}
-	if (!esp_timer_is_active(g_readSensorDataTimerHandle)) {
-		esp_timer_start_periodic(g_readSensorDataTimerHandle, READ_SENSOR_DATA_INTERVAL_MS * 1000);
-	}
-
 	if (g_sendSensorDataTimerHandle == NULL) {
 		esp_timer_create(&g_sendSensorDataTimerConf, &g_sendSensorDataTimerHandle);
 	}
 	if (!esp_timer_is_active(g_sendSensorDataTimerHandle)) {
-		esp_timer_start_periodic(g_sendSensorDataTimerHandle, SEND_SENSOR_DATA_INTERVAL_MS * 1000);
+		return esp_timer_start_periodic(g_sendSensorDataTimerHandle, (uint64_t)(SEND_SENSOR_DATA_INTERVAL_MS * 1000)) == ESP_OK; // NOLINT
 	}
 
-	return (gpio_isr_handler_add(GPIO_SPEED, speedInterruptHandler, NULL) == ESP_OK);
+	return false;
 }
 
-void sensorManagerDisableSpeedISR()
+void sensorManagerStopSendingSensorData()
 {
-	if (g_readSensorDataTimerHandle != NULL) {
-		esp_timer_stop(g_readSensorDataTimerHandle);
-		esp_timer_delete(g_readSensorDataTimerHandle);
-	}
-	if (g_sendSensorDataTimerHandle != NULL) {
+	if (g_sendSensorDataTimerHandle == NULL) {
 		esp_timer_stop(g_sendSensorDataTimerHandle);
 		esp_timer_delete(g_sendSensorDataTimerHandle);
+		g_sendSensorDataTimerHandle = NULL;
 	}
-
-	gpio_isr_handler_remove(GPIO_SPEED);
 }
 
-bool sensorManagerUpdateSpeed(void)
+bool sensorManagerStartReadingManualSensor(const ManualReadSensor_t sensor)
 {
-	// Calculate how much time between the two falling edges was
-	const int64_t time = g_timeOfFallingEdgeSpeed - g_lastTimeOfFallingEdgeSpeed;
-
-	// Convert the time to seconds
-	const float fT = (float)time / 1000.0f;
-
-	// Then save the speed frequency (rounded)
-	g_speedInHz = (int)round(1000.0 / fT);
-
-	// Is the speed value valid?
-	if (g_speedInHz >= 500) g_speedInHz = 0;
-
-	// Convert the frequency to actual speed
-	const uint8_t oldSpeed = g_vehicleSpeed;
-	g_vehicleSpeed = (int)calculateSpeedFromFrequency();
-
-	if (oldSpeed != g_vehicleSpeed) {
-		// Logging
-		ESP_LOGD("SensorManager", "Speed changed! From: '%d kmh' to '%d kmh'", oldSpeed, g_vehicleSpeed);
-
-		return true;
-	}
-	return false;
+	switch (sensor) {
+		case OIL_PRESSURE:
+			return startReadingManualSensor(OIL_PRESSURE);
+		case FUEL_LEVEL:
+			return startReadingManualSensor(FUEL_LEVEL);
+		case WATER_TEMP:
+			return startReadingManualSensor(WATER_TEMP);
+		case INTERNAL_TEMP:
+			return startReadingManualSensor(INTERNAL_TEMP);
+		default:
+			ESP_LOGW("SensorManager", "Received faulty sensor which should be read: '%d'", sensor);
+			return false;
+	};
 }
 
-bool sensorManagerEnableRpmISR()
+void sensorManagerStopReadingManualSensor(const ManualReadSensor_t sensor)
 {
-	return gpio_isr_handler_add(GPIO_RPM, rpmInterruptHandler, NULL) == ESP_OK;
+	switch (sensor) {
+		case OIL_PRESSURE:
+			stopReadingManualSensor(OIL_PRESSURE);
+			break;
+		case FUEL_LEVEL:
+			stopReadingManualSensor(FUEL_LEVEL);
+			break;
+		case WATER_TEMP:
+			stopReadingManualSensor(WATER_TEMP);
+			break;
+		case INTERNAL_TEMP:
+			stopReadingManualSensor(INTERNAL_TEMP);
+			break;
+		default:
+			ESP_LOGW("SensorManager", "Received faulty sensor which should no longer be read: '%d'", sensor);
+	};
 }
 
-void sensorManagerDisableRpmISR()
+bool sensorManagerStartReadingAutomaticSensor(const AutomaticReadSensor_t sensor)
 {
-	gpio_isr_handler_remove(GPIO_RPM);
+	switch (sensor) {
+		case SPEED:
+		case RPM:
+		case L_INDICATOR:
+			return startReadingAutomaticSensor(sensor);
+		default:
+			ESP_LOGW("SensorManager", "Received faulty automatic sensor which should be activated: '%d'", sensor);
+			return false;
+	}
 }
 
-bool sensorManagerUpdateRPM(void)
+void sensorManagerStopReadingAutomaticSensor(const AutomaticReadSensor_t sensor)
 {
-	// Calculate how much time between the two falling edges was
-	const int64_t time = g_timeOfFallingEdgeRPM - g_lastTimeOfFallingEdgeRPM;
-
-	// Convert the time to seconds
-	const float fT = (float)time / 1000.0f;
-
-	// Then save the rpm frequency (rounded)
-	g_rpmInHz = (int)round(1000.0 / fT);
-
-	// Is the rpm value valid?
-	if (g_rpmInHz >= 300) g_rpmInHz = -1;
-
-	// Convert the frequency to actual rpm
-	const int oldRpm = g_vehicleRPM;
-	g_vehicleRPM = calculateRpmFromFrequency();
-
-	if (oldRpm != g_vehicleRPM) {
-		// Logging
-		ESP_LOGD("SensorManager", "RPM changed! From: '%d RPM' to '%d RPM'", oldRpm, g_vehicleRPM);
-
-		return true;
+	switch (sensor) {
+		case SPEED:
+		case RPM:
+		case L_INDICATOR:
+			stopReadingAutomaticSensor(sensor);
+			break;
+		default:
+			ESP_LOGW("SensorManager", "Received faulty automatic sensor which should be deactivated: '%d'", sensor);
 	}
-	return false;
-}
-
-bool sensorManagerUpdateInternalTemperature(void)
-{
-	// Was the init successfully?
-	if (g_initAdc2Failed) return false;
-
-	// Try to get a reading from the ADC
-	if (adc_oneshot_read(g_adc1Handle, ADC_CHANNEL_INT_TEMPERATURE, &g_intTempRawAdcValue) != ESP_OK) {
-		// Logging
-		ESP_LOGE("SensorManager", "Failed to read the internal temperature from the ADC!");
-	}
-
-	// Convert the adc raw value to a voltage (mV)
-	adc_cali_raw_to_voltage(g_adc2IntTempCalibHandle, g_intTempRawAdcValue, &g_intTempVoltageMV);
-
-	// Then calculate the temperature from the voltage
-	double oldTemp = g_internalTemperature;
-	g_internalTemperature = ((double)g_intTempVoltageMV - 540.0) / 10.0;
-
-	if (oldTemp != g_internalTemperature) {
-		return true;
-	}
-	return false;
 }

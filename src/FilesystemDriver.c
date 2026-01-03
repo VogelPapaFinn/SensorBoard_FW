@@ -30,25 +30,29 @@
 /*
  *	Private Variables
  */
+//! \brief The handle of the SD Card
 static sdmmc_card_t* g_sdmmcCard = NULL;
+//! \brief The slot the SD Card is connected to
 static sdmmc_host_t g_sdmmcHost = SDMMC_HOST_DEFAULT();
+//! \brief The configuration of the slot the SD Card is connected to
 static sdmmc_slot_config_t g_slotConfig = SDMMC_SLOT_CONFIG_DEFAULT();
+//! \brief The mounting configuration of the SD Card filesystem
 static esp_vfs_fat_sdmmc_mount_config_t g_mountConfig;
 
-// Is the SD Card mounted?
-static bool g_sdCardMounted = false;
+//! \brief Bool indicating if the SD card is mounted or not
+static bool g_isSdCardMounted = false;
 
-// Is the internal data partition mounted?
-static bool g_dataPartitionMounted = false;
+//! \brief Bool indicating if the internal data partition is mounted or not
+static bool g_isDataPartitionMounted = false;
 
-// Is the internal config partition mounted?
-static bool g_configPartitionMounted = false;
+//! \brief Bool indicating if the internal config partition is mounted or not
+static bool g_isConfigPartitionMounted = false;
 
 /*
  *	Private Functions
  */
 //! \brief Builds the whole path depending on the location
-//! \param path The path that should be checked
+//! \param p_path The path that should be checked
 //! \param location The location e.g. SD Card or Internal
 //! \retval char* which contains the full path. Check for NULL!
 static char* buildFullPath(const char* p_path, const int location)
@@ -56,7 +60,7 @@ static char* buildFullPath(const char* p_path, const int location)
 	// Check the location
 	if (location == CONFIG_PARTITION) {
 		// Is the config partition mounted?
-		if (!g_configPartitionMounted) {
+		if (!g_isConfigPartitionMounted) {
 			// Logging
 			ESP_LOGE("FilesystemDriver", "Config partition not mounted");
 
@@ -76,7 +80,7 @@ static char* buildFullPath(const char* p_path, const int location)
 	}
 	else if (location == DATA_PARTITION) {
 		// Is the data partition mounted?
-		if (!g_dataPartitionMounted) {
+		if (!g_isDataPartitionMounted) {
 			// Logging
 			ESP_LOGE("FilesystemDriver", "Data partition not mounted");
 
@@ -96,7 +100,7 @@ static char* buildFullPath(const char* p_path, const int location)
 	}
 	else if (location == SD_CARD) {
 		// Is the SD Card mounted?
-		if (!g_sdCardMounted) {
+		if (!g_isSdCardMounted) {
 			// Logging
 			ESP_LOGW("FilesystemDriver", "SD Card not mounted");
 
@@ -124,13 +128,13 @@ static char* buildFullPath(const char* p_path, const int location)
 static bool isLocationMounted(const Location_t location)
 {
 	// Check if the location is mounted
-	if (location == DATA_PARTITION && !g_dataPartitionMounted) {
+	if (location == DATA_PARTITION && !g_isDataPartitionMounted) {
 		return false;
 	}
-	if (location == CONFIG_PARTITION && !g_configPartitionMounted) {
+	if (location == CONFIG_PARTITION && !g_isConfigPartitionMounted) {
 		return false;
 	}
-	if (location == SD_CARD && !g_sdCardMounted) {
+	if (location == SD_CARD && !g_isSdCardMounted) {
 		return false;
 	}
 	return true;
@@ -170,7 +174,7 @@ bool filesystemInit(void)
 	// Was the mount successful?
 	if (mountCardResult == ESP_OK) {
 		// The SDCard was mounted successfully
-		g_sdCardMounted = true;
+		g_isSdCardMounted = true;
 
 		// Logging
 		ESP_LOGI("FilesystemDriver", "Mounted SD card successfully");
@@ -197,7 +201,7 @@ bool filesystemInit(void)
 	// Was the mount successful?
 	if (mountDataResult == ESP_OK) {
 		// The data partition was mounted successfully
-		g_dataPartitionMounted = true;
+		g_isDataPartitionMounted = true;
 
 		// Logging
 		ESP_LOGI("FilesystemDriver", "Mounted data partition successfully");
@@ -224,7 +228,7 @@ bool filesystemInit(void)
 	// Was the mount successful?
 	if (mountConfigResult == ESP_OK) {
 		// The config partition was mounted successfully
-		g_configPartitionMounted = true;
+		g_isConfigPartitionMounted = true;
 
 		// Logging
 		ESP_LOGI("FilesystemDriver", "Mounted config partition successfully");
@@ -238,8 +242,8 @@ bool filesystemInit(void)
 
 
 	// Return success
-	return g_dataPartitionMounted && g_configPartitionMounted
-		&& g_sdCardMounted;
+	return g_isDataPartitionMounted && g_isConfigPartitionMounted
+		&& g_isSdCardMounted;
 }
 
 bool filesystemCreateFile(const char* p_path, const Location_t location)
@@ -390,7 +394,7 @@ bool fileManagerDoesDirectoryExist(const char* p_dir)
 bool fileManagerCreateDir(const char* p_path)
 {
 	// Check if the sdcard is mounted
-	if (!g_sdCardMounted) {
+	if (!g_isSdCardMounted) {
 		return false;
 	}
 
@@ -415,7 +419,7 @@ bool fileManagerCreateDir(const char* p_path)
 bool fileManagerDeleteDir(const char* p_path)
 {
 	// Check if the sdcard is mounted
-	if (!g_sdCardMounted) {
+	if (!g_isSdCardMounted) {
 		return false;
 	}
 

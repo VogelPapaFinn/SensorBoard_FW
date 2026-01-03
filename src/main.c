@@ -29,13 +29,13 @@
  *	Prototypes
  */
 void handleCanMessage(const QueueEvent_t* p_queueEvent);
-void initOperationMode(const QueueEvent_t* p_queueEvent);
+void enterOperatingMode(const QueueEvent_t* p_queueEvent);
 void readSensorData(const QueueEvent_t* p_queueEvent);
 void handleSensorDataChanged(const QueueEvent_t* p_queueEvent);
 void handleDisplayStatiChanged(const QueueEvent_t* p_queueEvent);
 
 void registrationTimerCallback(void* p_arg);
-void readSensorDataISR(void* p_arg);
+void readSensorsDataISR(void* p_arg);
 void sendUUIDRequest(void);
 
 void debugListAllSpiffsFiles();
@@ -46,7 +46,7 @@ void debugListAllSpiffsFiles();
 typedef enum
 {
 	STATE_INIT,
-	STATE_OPERATION,
+	STATE_OPERATING,
 } State_t;
 
 typedef void (*EventHandlerFunction_t)(const QueueEvent_t* p_queueEvent);
@@ -58,17 +58,11 @@ const uint8_t g_ownCanSenderId = 0x00;
 static const EventHandlerFunction_t g_eventHandlers[] = {
 	[RECEIVED_NEW_CAN_MESSAGE] = handleCanMessage,
 	[REQUEST_UUID] = displayStartRegistrationProcess,
-	[INIT_OPERATION_MODE] = initOperationMode,
+	[INIT_OPERATION_MODE] = enterOperatingMode,
 };
 const uint8_t g_amountOfEventHandlers = sizeof(g_eventHandlers) / sizeof(EventHandlerFunction_t);
 
 static bool g_operationModeInitialized = false;
-
-
-/*
- *	Interrupt Service Routines
- */
-
 
 /*
  *	Main functions
@@ -118,7 +112,7 @@ void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 
 void handleCanMessage(const QueueEvent_t* p_queueEvent)
 {
-	ESP_LOGD("main", "Received new can message");
+	ESP_LOGI("main", "Received new can message");
 
 	// Get the frame
 	const twai_frame_t recFrame = p_queueEvent->canFrame;
@@ -129,23 +123,23 @@ void handleCanMessage(const QueueEvent_t* p_queueEvent)
 	}
 }
 
-void initOperationMode(const QueueEvent_t* p_queueEvent)
+void enterOperatingMode(const QueueEvent_t* p_queueEvent)
 {
-	// Are we already in the OPERATION mode but not yet initialized?
-	if (getCurrentState() == STATE_OPERATION && g_operationModeInitialized == false) {
-		bool initSucceeded = true;
-
+	// Are we not yet initialized?
+	if (g_operationModeInitialized == false) {
+		// Enter the operating mode
+		setCurrentState(STATE_OPERATING);
 		/*
 		 * Start the Webinterface
 		 */
-		// initSucceeded &= startWebInterface(GET_FROM_CONFIG);
+		// startWebInterface(GET_FROM_CONFIG);
 
 		// Start the reading of the speed and RPM sensor
-		sensorManagerEnableSpeedISR();
-		sensorManagerEnableRpmISR();
+		sensorManagerStartReadingAllSensors();
+		sensorManagerStartSendingSensorData();
 
 		// Finished the initialization
-		g_operationModeInitialized = initSucceeded;
+		g_operationModeInitialized = true;
 	}
 }
 

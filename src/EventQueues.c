@@ -5,8 +5,8 @@
 /*
  *	Global variables
  */
-QueueHandle_t g_updateEventQueue = NULL;
 QueueHandle_t g_displayManagerEventQueue = NULL;
+
 QueueHandle_t g_mainEventQueue = NULL;
 
 /*
@@ -14,14 +14,6 @@ QueueHandle_t g_mainEventQueue = NULL;
  */
 bool createEventQueues()
 {
-	// Create the event Queue for the Update Handler
-	g_updateEventQueue = xQueueCreate(20, sizeof(QueueEvent_t));
-	if (g_updateEventQueue == NULL) {
-		ESP_LOGE("EventQueue", "Couldn't create updateEventQueue");
-
-		return false;
-	}
-
 	// Create the event Queue for the Display Manager
 	g_displayManagerEventQueue = xQueueCreate(10, sizeof(QueueEvent_t));
 	if (g_displayManagerEventQueue == NULL) {

@@ -21,12 +21,17 @@
 /*
  *	Private typedefs
  */
+//! \brief A struct representing an uuid which got a comId assigned
 typedef struct
 {
+	//! \brief The uuid of the display. Has the length of UUID_LENGTH_B
 	char uuid[sizeof(uint8_t) * UUID_LENGTH_B];
+
+	//! \brief The assigned comId. 0 if this entry is faulty/unused
 	uint8_t comId;
 } DisplayConfig_t;
 
+//! \brief An enum which represents the GUI's the display can show
 typedef enum
 {
 	SCREEN_TEMPERATURE,
@@ -38,14 +43,30 @@ typedef enum
 /*
  *	Private function prototypes
  */
+//! \brief Broadcasts the registration requests on the CAN bus
+//! \param p_arg Unused pointer which is needed for the espidf timer to trigger the function correctly
 static void broadcastRegistrationRequestCb(void* p_arg);
 
+//! \brief Returns the comId assigned to the specified uuid
+//! \param p_uuid The uuid array, usually 6 Bytes long
+//! \retval The comId or 0 if none was found
 static uint8_t getComIdFromUuid(const uint8_t* p_uuid);
 
+//! \brief Generates a new com id for the specified uuid
+//! \param p_uuid The uuid array, usually 6 Bytes long
+//! \retval The comId or 0 if none could be generated
 static uint8_t createComIdForUuid(const uint8_t* p_uuid);
 
+//! \brief Loads the to be displayed screen for the specified uuid from the config file
+//! \param p_uuid The uuid array of the display. Usually 6 Bytes long
+//! \retval A Screen_t instance but converted to an uint8_t
 static uint8_t loadScreenForComIdFromFile(const uint8_t* p_uuid);
 
+//! \brief Formats a specified uuid for better displaying and handling in the config file
+//! \param p_uuid The uuid array, usually 6 Bytes long
+//! \param p_buffer The output buffer, where the formatted uuid should be placed into
+//! \param bufferLength The length of the passed buffer
+//! \retval A bool indicating if the write process was successfull
 static bool getFormattedUuid(const uint8_t* p_uuid, char* p_buffer, uint8_t bufferLength);
 
 /*
@@ -54,11 +75,19 @@ static bool getFormattedUuid(const uint8_t* p_uuid, char* p_buffer, uint8_t buff
 //! \brief Amount of connected displays. Used for assigning the COM IDs
 static uint8_t g_amountOfConnectedDisplays;
 
+//! \brief Bool indicating if the registration process is currently active
 static bool g_registrationProcessActive = false;
+
+//! \brief Handle of the timer which is used in the registration process to periodically
+//! send the registration request
 static esp_timer_handle_t g_registrationTimerHandle;
+
+//! \brief The config of the timer which is used in the registration process to periodically
+//! send the registration request
 static const esp_timer_create_args_t g_registrationTimerConfig = {.callback = &broadcastRegistrationRequestCb,
                                                                   .name = "Display Registration Timer"};
 
+//! \brief The array which holds the DisplayConfig_t instances
 static DisplayConfig_t g_comIdEntries[AMOUNT_OF_DISPLAYS];
 
 /*
@@ -319,11 +348,19 @@ void displayRegisterWithUUID(const uint8_t* p_uuid)
 	         canBuffer[1],
 	         canBuffer[2], canBuffer[3], canBuffer[4], canBuffer[5]);
 
+
 	// Create the can frame
 	twai_frame_t* frame = generateCanFrame(CAN_MSG_COMID_ASSIGNATION, g_ownCanSenderId, &canBuffer, sizeof(uint8_t) * CAN_LENGTH_COMID_ASSIGNATION); // NOLINT
 
 	// Send the frame
 	queueCanBusMessage(frame, true, true);
+
+	// Check if all devices registered
+	if (g_registrationProcessActive && g_amountOfConnectedDisplays >= AMOUNT_OF_DISPLAYS) {
+		QueueEvent_t event;
+		event.command = INIT_OPERATION_MODE;
+		xQueueSend(g_mainEventQueue, &event, pdMS_TO_TICKS(100));
+	}
 }
 
 void displayPrintConfigFile()
