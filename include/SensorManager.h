@@ -61,6 +61,8 @@ bool sensorManagerInit(void);
 //! \brief Checks if there is oil pressure
 bool sensorManagerUpdateOilPressure(void);
 
+void sensorManagerReadAllSensors();
+
 //! \brief Updates the fuel level
 bool sensorManagerUpdateFuelLevel(void);
 
@@ -69,7 +71,7 @@ bool sensorManagerUpdateWaterTemperature(void);
 
 //! \brief Enables the speed ISR
 //! \retval Boolean indicating if it worked
-bool test_function_snake_case(void);
+bool sensorManagerEnableSpeedISR(void);
 
 //! \brief Disables the speed ISR
 void sensorManagerDisableSpeedISR(void);

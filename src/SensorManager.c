@@ -10,6 +10,10 @@
 #include <esp_timer.h>
 #include <esp_log.h>
 
+
+#define READ_SENSOR_DATA_INTERVAL_MS 50
+#define SEND_SENSOR_DATA_INTERVAL_MS 100
+
 // The ADC handles
 adc_oneshot_unit_handle_t g_adc1Handle;
 adc_oneshot_unit_handle_t g_adc2Handle;
@@ -56,6 +60,43 @@ bool g_leftIndicator = false;
 adc_cali_handle_t g_adc2LeftIndicatorHandle;
 bool g_rightIndicator = false;
 adc_cali_handle_t g_adc2RightIndicatorHandle;
+
+#include "EventQueues.h"
+//! \brief Connected to a Timer timeout to read the data from all sensor
+void readSensorDataISR(void* p_arg)
+{
+	sensorManagerReadAllSensors();
+}
+static esp_timer_handle_t g_readSensorDataTimerHandle;
+static const esp_timer_create_args_t g_readSensorDataTimerConf = {.callback = &readSensorDataISR,
+																  .name = "Read Sensor Data Timer"};
+
+#include "can.h"
+void sendSensorDataISR(void* p_arg)
+{
+	// Create the buffer for the answer CAN frame
+	uint8_t* buffer = malloc(sizeof(uint8_t) * 8);
+	if (buffer == NULL) {
+		return;
+	}
+	buffer[0] = g_vehicleSpeed;
+	buffer[1] = g_vehicleRPM >> 8;
+	buffer[2] = (uint8_t)g_vehicleRPM;
+	buffer[3] = g_fuelLevelInPercent;
+	buffer[4] = g_waterTemp;
+	buffer[5] = g_oilPressure;
+	buffer[6] = g_leftIndicator;
+	buffer[7] = g_rightIndicator;
+
+	// Create the CAN answer frame
+	twai_frame_t* sensorDataFrame = generateCanFrame(CAN_MSG_SENSOR_DATA, g_ownCanSenderId, &buffer, 8);
+
+	// Send the frame
+	queueCanBusMessage(sensorDataFrame, true, true);
+}
+static esp_timer_handle_t g_sendSensorDataTimerHandle;
+static const esp_timer_create_args_t g_sendSensorDataTimerConf = {.callback = &sendSensorDataISR,
+																  .name = "Send Sensor Data Timer"};
 
 
 /*
@@ -311,7 +352,7 @@ bool sensorManagerInit(void)
 	}
 
 	// Activate the ISR for measuring the frequency for the speed
-	if (test_function_snake_case()) {
+	if (sensorManagerEnableSpeedISR()) {
 		// Everything worked
 		g_speedIsrActive = true;
 	}
@@ -423,6 +464,16 @@ bool sensorManagerUpdateOilPressure(void)
 	return false;
 }
 
+void sensorManagerReadAllSensors()
+{
+	sensorManagerUpdateFuelLevel();
+	sensorManagerUpdateInternalTemperature();
+	sensorManagerUpdateOilPressure();
+	sensorManagerUpdateRPM();
+	sensorManagerUpdateSpeed();
+	sensorManagerUpdateSpeed();
+}
+
 bool sensorManagerUpdateFuelLevel(void)
 {
 	// Was the init successfully?
@@ -499,13 +550,37 @@ bool sensorManagerUpdateWaterTemperature(void)
 	return false;
 }
 
-bool test_function_snake_case()
+bool sensorManagerEnableSpeedISR()
 {
+	ESP_LOGI("SensorManager", "sensorManagerEnableSpeedISR");
+	if (g_readSensorDataTimerHandle == NULL) {
+		esp_timer_create(&g_readSensorDataTimerConf, &g_readSensorDataTimerHandle);
+	}
+	if (!esp_timer_is_active(g_readSensorDataTimerHandle)) {
+		esp_timer_start_periodic(g_readSensorDataTimerHandle, READ_SENSOR_DATA_INTERVAL_MS * 1000);
+	}
+
+	if (g_sendSensorDataTimerHandle == NULL) {
+		esp_timer_create(&g_sendSensorDataTimerConf, &g_sendSensorDataTimerHandle);
+	}
+	if (!esp_timer_is_active(g_sendSensorDataTimerHandle)) {
+		esp_timer_start_periodic(g_sendSensorDataTimerHandle, SEND_SENSOR_DATA_INTERVAL_MS * 1000);
+	}
+
 	return (gpio_isr_handler_add(GPIO_SPEED, speedInterruptHandler, NULL) == ESP_OK);
 }
 
 void sensorManagerDisableSpeedISR()
 {
+	if (g_readSensorDataTimerHandle != NULL) {
+		esp_timer_stop(g_readSensorDataTimerHandle);
+		esp_timer_delete(g_readSensorDataTimerHandle);
+	}
+	if (g_sendSensorDataTimerHandle != NULL) {
+		esp_timer_stop(g_sendSensorDataTimerHandle);
+		esp_timer_delete(g_sendSensorDataTimerHandle);
+	}
+
 	gpio_isr_handler_remove(GPIO_SPEED);
 }
 

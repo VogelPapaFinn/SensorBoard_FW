@@ -206,7 +206,8 @@ void displayManagerInit()
 	// Load the display config
 	loadConfigFile(DISPLAY_CONFIG_NAME, DISPLAY_CONFIG);
 
-	displayPrintConfigFile();
+	// Print the content of the config file
+	// displayPrintConfigFile();
 }
 
 void displayRestart(const uint8_t comId)
@@ -219,7 +220,7 @@ void displayRestart(const uint8_t comId)
 
 	// Create the can frame answer
 	twai_frame_t* restartFrame =
-		generateCanFrame(CAN_MSG_DISPLAY_RESTART, g_ownCanSenderId, &comId, sizeof(comId));
+		generateCanFrame(CAN_MSG_DISPLAY_RESTART, g_ownCanSenderId, (uint8_t**)&comId, sizeof(comId));
 
 	// Send the frame
 	queueCanBusMessage(restartFrame, true, true);
@@ -319,7 +320,7 @@ void displayRegisterWithUUID(const uint8_t* p_uuid)
 	         canBuffer[2], canBuffer[3], canBuffer[4], canBuffer[5]);
 
 	// Create the can frame
-	twai_frame_t* frame = generateCanFrame(CAN_MSG_COMID_ASSIGNATION, g_ownCanSenderId, canBuffer, sizeof(uint8_t) * CAN_LENGTH_COMID_ASSIGNATION); // NOLINT
+	twai_frame_t* frame = generateCanFrame(CAN_MSG_COMID_ASSIGNATION, g_ownCanSenderId, &canBuffer, sizeof(uint8_t) * CAN_LENGTH_COMID_ASSIGNATION); // NOLINT
 
 	// Send the frame
 	queueCanBusMessage(frame, true, true);
