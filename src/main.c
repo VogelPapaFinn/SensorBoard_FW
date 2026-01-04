@@ -133,7 +133,11 @@ void handleCanMessage(const QueueEvent_t* p_queueEvent)
 	if ((recFrame.header.id >> CAN_FRAME_HEADER_OFFSET) == CAN_MSG_REGISTRATION && recFrame.buffer_len >= 6) {
 		// Send it to the Display Manager
 		displayRegisterWithUUID(p_queueEvent->canFrame.buffer);
+
+		return;
 	}
+
+	ESP_LOGW("main", "Received unknown can message with command id %d", (recFrame.header.id >> CAN_FRAME_HEADER_OFFSET));
 }
 
 void enterOperatingMode(const QueueEvent_t* p_queueEvent)
@@ -142,14 +146,15 @@ void enterOperatingMode(const QueueEvent_t* p_queueEvent)
 	if (g_operationModeInitialized == false) {
 		// Enter the operating mode
 		setCurrentState(STATE_OPERATING);
-		/*
-		 * Start the Webinterface
-		 */
+
+		// Start the Webinterface
 		// startWebInterface(GET_FROM_CONFIG);
 
-		// Start the reading of the speed and RPM sensor
-		sensorManagerStartReadingAllSensors();
-		sensorManagerStartSendingSensorData();
+		// Start the reading of all sensors
+		sensorsStartReadingAllSensors();
+
+		// Start sending the sensor data via can
+		sensorsStartSendingSensorData();
 
 		// Finished the initialization
 		g_operationModeInitialized = true;

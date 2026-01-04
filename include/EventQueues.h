@@ -19,19 +19,19 @@ extern QueueHandle_t g_mainEventQueue;
 //! \brief A typedef enum that contains commands for all Queues
 typedef enum
 {
-	/* CAN */
+	/*
+	 * CAN
+	 */
 	CAN_DRIVER_CRASHED,
 	RECEIVED_NEW_CAN_MESSAGE,
 
-	/* MAIN */
+	/*
+	 * MAIN
+	 */
 	REQUEST_UUID,
 	INIT_OPERATION_MODE,
 	READ_SENSOR_DATA,
 	RESTART_DISPLAY,
-
-	/* DATA CENTER */
-	SENSOR_DATA_CHANGED,
-	DISPLAY_STATI_CHANGED,
 } QueueCommand_t;
 
 //! \brief A typedef struct which is used in the event queues

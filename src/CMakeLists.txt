@@ -30,6 +30,26 @@ set(FILES
         "../include/SensorManager.h"
         "SensorManager.c"
 
+        # Sensors
+        "../include/Sensors/FuelLevelSensor.h"
+        "../include/Sensors/IndicatorsSensor.h"
+        "../include/Sensors/InternalTemperatureSensor.h"
+        "../include/Sensors/OilPressureSensor.h"
+        "../include/Sensors/RpmSensor.h"
+        "../include/Sensors/SpeedSensor.h"
+        "../include/Sensors/WaterTemperatureSensor.h"
+        "Sensors/FuelLevelSensor.c"
+        "Sensors/IndicatorsSensor.c"
+        "Sensors/InternalTemperatureSensor.c"
+        "Sensors/OilPressureSensor.c"
+        "Sensors/RpmSensor.c"
+        "Sensors/SpeedSensor.c"
+        "Sensors/WaterTemperatureSensor.c"
+
+        # Sensor Utils
+        "../include/Sensors/SensorUtils.h"
+        "Sensors/SensorUtils.c"
+
         # Wifi Driver
         "../include/WifiDriver.h"
         "WifiDriver.c"

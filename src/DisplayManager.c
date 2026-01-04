@@ -48,6 +48,11 @@ static uint8_t getComIdFromUuid(const uint8_t* p_uuid);
 //! \retval The comId or 0 if none could be generated
 static uint8_t createConfigForUnknownDevice(const uint8_t* p_uuid);
 
+//! \brief Checks if we have an entry in the config file for the specified uuid
+//! \param p_uuid The uuid array of the display. Usually 6 Bytes long
+//! \retval A bool indicating if an entry exists or not
+static bool checkConfigForUuidInConfigFileExists(const uint8_t* p_uuid);
+
 //! \brief Loads the to be displayed screen for the specified uuid from the config file
 //! \param p_uuid The uuid array of the display. Usually 6 Bytes long
 //! \retval A Screen_t instance but converted to an uint8_t
@@ -136,6 +141,9 @@ static uint8_t createConfigForUnknownDevice(const uint8_t* p_uuid)
 		return 0;
 	}
 
+	/*
+	 *	Find an empty com id entry in the array we can use
+	 */
 	// Iterate through the list of all com id entries
 	for (uint8_t i = 0; i < AMOUNT_OF_DISPLAYS; i++) {
 		// Find the first empty entry
@@ -151,7 +159,7 @@ static uint8_t createConfigForUnknownDevice(const uint8_t* p_uuid)
 			// Set the com id
 			g_comIdEntries[i].comId = ++g_amountOfConnectedDisplays;
 
-			// Return the com id
+			// Save the com id
 			comId = g_comIdEntries[i].comId;
 			break;
 		}
@@ -163,7 +171,16 @@ static uint8_t createConfigForUnknownDevice(const uint8_t* p_uuid)
 	}
 
 	/*
-	 *	Put it into the display config
+	 *	Check if we already have an entry in the config file with the same uuid
+	 */
+	const bool entryExists = checkConfigForUuidInConfigFileExists(p_uuid);
+	if (entryExists) {
+		// Set the screen
+		return comId;
+	}
+
+	/*
+	 *	Load the config file
 	*/
 	// Extract the formatted UUID
 	char formattedUuid[FORMATTED_UUID_LENGTH_B];
@@ -187,6 +204,9 @@ static uint8_t createConfigForUnknownDevice(const uint8_t* p_uuid)
 		return comId;
 	}
 
+	/*
+	 *	Create a new entry in the config file
+	 */
 	// Create a new entry
 	cJSON* newConfigurationEntry = cJSON_CreateObject();
 	cJSON_AddStringToObject(newConfigurationEntry, "hwUuid", formattedUuid);
@@ -203,6 +223,58 @@ static uint8_t createConfigForUnknownDevice(const uint8_t* p_uuid)
 	}
 
 	return comId;
+}
+
+static bool checkConfigForUuidInConfigFileExists(const uint8_t* p_uuid)
+{
+	// Is the uuid valid?
+	if (p_uuid == NULL) {
+		return SCREEN_UNKNOWN;
+	}
+
+	// Get the cJSON root object
+	const cJSON* root = *configGet(DISPLAY_CONFIG);
+
+	// Is it valid?
+	if (root == NULL) {
+		ESP_LOGE("DisplayManager", "Got faulty config for %d", DISPLAY_CONFIG);
+		return SCREEN_UNKNOWN;
+	}
+
+	// Get the display configurations
+	const cJSON* displayConfigurationsArray = cJSON_GetObjectItem(root, "displayConfigurations");
+
+	// Are they valid
+	if (displayConfigurationsArray == NULL) {
+		ESP_LOGE("DisplayManager", "Got faulty display configurations from %d", DISPLAY_CONFIG);
+		return SCREEN_UNKNOWN;
+	}
+
+	// Check all config entries
+	for (uint8_t i = 0; i < (uint8_t)cJSON_GetArraySize(displayConfigurationsArray); i++) {
+		// Get the current entry
+		const cJSON* configuration = cJSON_GetArrayItem(displayConfigurationsArray, i);
+
+		// Get the UUID
+		const cJSON* uuid = cJSON_GetObjectItem(configuration, "hwUuid");
+		if (!cJSON_IsString(uuid) || (uuid->valuestring == NULL)) {
+			continue;
+		}
+
+		// Extract the formatted UUID
+		char formattedUuid[FORMATTED_UUID_LENGTH_B];
+		getFormattedUuid(p_uuid, formattedUuid, sizeof(formattedUuid));
+
+		// Is it the same UUID?
+		if (strcmp(uuid->valuestring, formattedUuid) != 0) {
+			continue;
+		}
+
+		return true;
+	}
+
+	// Nothing found
+	return false;
 }
 
 static uint8_t loadScreenForComIdFromFile(const uint8_t* p_uuid)
