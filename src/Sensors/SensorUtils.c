@@ -28,7 +28,7 @@ bool sensorUtilsInitSensor(const gpio_num_t gpio, const adc_oneshot_unit_handle_
 	return true;
 }
 
-bool sensorUtilsCalibrateSensor(const adc_channel_t adcChannel, adc_cali_handle_t* adcCalibrationHandle)
+bool sensorUtilsCalibrateSensor(const adc_channel_t adcChannel, adc_cali_handle_t* p_adcCalibrationHandle)
 {
 	// Create config
 	const adc_cali_curve_fitting_config_t curveCalibrationConfig = {
@@ -39,7 +39,7 @@ bool sensorUtilsCalibrateSensor(const adc_channel_t adcChannel, adc_cali_handle_
 	};
 
 	// Apply curve calibration
-	if (adc_cali_create_scheme_curve_fitting(&curveCalibrationConfig, adcCalibrationHandle) != ESP_OK) {
+	if (adc_cali_create_scheme_curve_fitting(&curveCalibrationConfig, p_adcCalibrationHandle) != ESP_OK) {
 		return false;
 	}
 

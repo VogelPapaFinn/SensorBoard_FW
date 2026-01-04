@@ -10,8 +10,8 @@
 /*
  *	Private defines
  */
-#define WATER_TEMPERATURE_GPIO GPIO_NUM_13
-#define WATER_TEMPERATURE_ADC_CHANNEL ADC_CHANNEL_2
+#define WATER_TEMPERATURE_GPIO GPIO_NUM_11
+#define WATER_TEMPERATURE_ADC_CHANNEL ADC_CHANNEL_0
 
 #define WATER_TEMPERATURE_R1 3000
 
@@ -46,14 +46,14 @@ static uint8_t g_waterTemperature = 0;
 /*
  *	Private functions
  */
-static uint8_t calculateTemperatureFromResistance(const double r) {
+static uint8_t calculateTemperatureFromResistance(const uint16_t r) {
 	// Check if it is below the first element
-	if (r < g_tempResistanceTuples[0].resistance) {
-		return g_tempResistanceTuples[0].temp - 1;
+	if (r > g_tempResistanceTuples[0].resistance) {
+		return g_tempResistanceTuples[0].temp;
 	}
 
 	// Check if it is above the last element
-	if (r > g_tempResistanceTuples[g_amountOfTempResistanceTuples - 1].resistance) {
+	if (r < g_tempResistanceTuples[g_amountOfTempResistanceTuples - 1].resistance) {
 		return g_tempResistanceTuples[g_amountOfTempResistanceTuples - 1].temp + 1;
 	}
 
@@ -63,13 +63,16 @@ static uint8_t calculateTemperatureFromResistance(const double r) {
 		const uint16_t r2 = g_tempResistanceTuples[i + 1].resistance;
 
 		// Check if the passed resistance is between this and the next entry
-		if (r >= r1 && r <= r2) {
+		if (r <= r1 && r >= r2) {
 			const uint8_t temp1 = g_tempResistanceTuples[i].temp;
 			const uint8_t temp2 = g_tempResistanceTuples[i].temp;
 
+			const uint8_t t = (uint8_t)(temp1 + (r - r1) * ((temp2 - temp1) / (r2 - r1)));
+			ESP_LOGI("WaterTemperatureSensor", "i: %d, r: %d, val: %d", i, r, t);
+
 			// Calculate the value with linear interpolation
 			// y = y1 + (x - x1) * (y2 - y1) / (x2 - x1)
-			return (temp1 + (r - r1) * ((temp2 - temp1) / (r2 - r1)));
+			return (uint8_t)(temp1 + (r - r1) * ((temp2 - temp1) / (r2 - r1)));
 		}
 	}
 
@@ -125,10 +128,10 @@ void sensorsReadWaterTemperature()
 	}
 
 	// Calculate resistance
-	const float r2 = sensorUtilsCalculateVoltageDividerR2(voltage, WATER_TEMPERATURE_R1);
+	const double r2 = sensorUtilsCalculateVoltageDividerR2(voltage, WATER_TEMPERATURE_R1);
 
 	// Calculate the water temperature from the calculated resistance
-	g_waterTemperature = calculateTemperatureFromResistance(r2);
+	g_waterTemperature = calculateTemperatureFromResistance((uint16_t)r2);
 }
 
 uint8_t sensorsGetWaterTemperature()

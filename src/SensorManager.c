@@ -66,6 +66,12 @@ static const esp_timer_create_args_t g_sendSensorDataTimerConf = {.callback = &s
  */
 static void sendSensorDataISR(void* p_arg)
 {
+	// Update all sensors first (not all of them need the manual update)
+	sensorsReadFuelLevel();
+	sensorsReadWaterTemperature();
+	sensorsReadOilPressure();
+	sensorsReadInternalTemperature();
+
 	// Create the buffer for the answer CAN frame
 	uint8_t* buffer = malloc(sizeof(uint8_t) * 8);
 	if (buffer == NULL) {
