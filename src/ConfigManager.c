@@ -6,6 +6,8 @@
 // C includes
 #include <stdio.h>
 #include <string.h>
+#include <sys/errno.h>
+#include <sys/unistd.h>
 
 // espidf includes
 #include "esp_log.h"
@@ -21,21 +23,13 @@
 //! \brief Contains a boolean for all configs which can be accessed via the ConfigFile_t value.
 //!	If true, the config is loaded and available otherwise it's not.
 static bool g_configAvailable[MAX_AMOUNT_OF_CONFIGS] = { false };
-static char* g_configBuffer[MAX_AMOUNT_OF_CONFIGS] = { NULL };
+static char* g_configNames[MAX_AMOUNT_OF_CONFIGS] = { NULL };
 static cJSON* g_configJsonRoot[MAX_AMOUNT_OF_CONFIGS] = { NULL };
-
-static bool g_displayConfigAvailable = true;
-static char g_displayConfigurationBuffer[MAX_CONFIG_SIZE_B];
-static cJSON* g_displayConfigurationRoot = NULL;
-
-static bool g_wifiConfigAvailable = true;
-static char g_wifiConfigurationBuffer[MAX_CONFIG_SIZE_B];
-static cJSON* g_wifiConfigurationRoot = NULL;
 
 /*
  *	Private Functions
  */
-static bool fileToJson(const char* p_fileName, char* p_buffer, const uint16_t bufferLen, cJSON** p_root)
+static bool fileToJson(const char* p_fileName, cJSON** p_root)
 {
 	// Open the file
 	FILE* file = filesystemOpenFile(p_fileName, "r", CONFIG_PARTITION);
@@ -47,10 +41,10 @@ static bool fileToJson(const char* p_fileName, char* p_buffer, const uint16_t bu
 	}
 
 	// Zero the buffer
-	memset(p_buffer, 0, bufferLen);
+	char buffer[MAX_CONFIG_SIZE_B];
 
 	// Read everything from the file
-	if (fread(p_buffer, 1, bufferLen, file) == 0) {
+	if (fread(buffer, 1, MAX_CONFIG_SIZE_B, file) == 0) {
 		fclose(file);
 		ESP_LOGE("ConfigManager", "Couldn't read from file %s on partition %d", p_fileName, CONFIG_PARTITION);
 		return false;
@@ -58,7 +52,7 @@ static bool fileToJson(const char* p_fileName, char* p_buffer, const uint16_t bu
 	fclose(file);
 
 	// Parse it to JSON
-	*p_root = cJSON_Parse(p_buffer);
+	*p_root = cJSON_Parse(buffer);
 	if (*p_root == NULL) {
 		ESP_LOGE("ConfigManager", "Couldn't parse the content of file %s on partition %d to JSON", p_fileName, CONFIG_PARTITION);
 		return false;
@@ -77,19 +71,44 @@ static bool jsonToFile(const cJSON* p_root, const char* p_fileName)
 		return false;
 	}
 
-	// Write the JSON configuration to it
+	// Get the JSON configuration
 	char* jsonFormatted = cJSON_Print(p_root);
-	int result = fprintf(file, "%s", jsonFormatted);
-	free(jsonFormatted);
-
-	// Close the file
-	fclose(file);
-
-	// Did it fail?
-	if (result <= 0) {
-		ESP_LOGE("ConfigManager", "Couldn't write the JSON configuration to file %s on partition %d", p_fileName, CONFIG_PARTITION);
+	if (jsonFormatted == NULL) {
+		ESP_LOGE("ConfigManager", "Failed to get cJSON configuration");
+		fclose(file);
 		return false;
 	}
+
+	// Write the JSON configuration to the file
+	const int written = fprintf(file, "%s", jsonFormatted);
+	free(jsonFormatted);
+
+	// Did it fail?
+	if (written <= 0) {
+		ESP_LOGE("ConfigManager", "Couldn't write the JSON configuration to file %s on partition %d", p_fileName, CONFIG_PARTITION);
+		fclose(file);
+		return false;
+	}
+
+	// Flush everything
+	if (fflush(file) == EOF) {
+		ESP_LOGE("ConfigManager", "Failed to flush config to file");
+		fclose(file);
+		return false;
+	}
+	if (fsync(fileno(file)) == -1)
+	{
+		ESP_LOGE("ConfigManager", "Failed to syncfile content to filesystem with errno: %ss", strerror(errno));
+		fclose(file);
+		return false;
+	}
+
+	// Close the file
+	if (fclose(file) == EOF) {
+		ESP_LOGE("ConfigManager", "Failed to close file (writing failed)");
+		return false;
+	}
+
 	return true;
 }
 
@@ -113,19 +132,15 @@ static char* buildDefaultConfigPath(const char* p_fileName)
 /*
  *	Public Function Implementations
  */
-bool loadConfigFile(char* p_name, const ConfigFile_t handleAs)
+bool configLoadFile(const char* p_name, const ConfigFile_t handleAs)
 {
-	// Is there already a buffer?
-	if (g_configBuffer[handleAs] != NULL) {
-		free(g_configBuffer[handleAs]);
-	}
-
-	// Allocate memory for the buffer for the file
-	g_configBuffer[handleAs] = malloc(MAX_CONFIG_SIZE_B);
-	if (g_configBuffer[handleAs] == NULL) {
-		ESP_LOGE("ConfigManager", "Couldn't allocate memory for the configuration buffer of file %s.", p_name);
+	// Save the name
+	const uint8_t length = strlen(p_name) + 1;
+	g_configNames[handleAs] = malloc(length);
+	if (g_configNames[handleAs] == NULL) {
 		return false;
 	}
+	strlcpy(g_configNames[handleAs], p_name, length);
 
 	// Is there already a JSON root?
 	if (g_configJsonRoot[handleAs] != NULL) {
@@ -140,7 +155,7 @@ bool loadConfigFile(char* p_name, const ConfigFile_t handleAs)
 	}
 
 	// Try to load the config
-	bool result = fileToJson(p_name, g_configBuffer[handleAs], MAX_CONFIG_SIZE_B, &g_configJsonRoot[handleAs]);
+	bool result = fileToJson(p_name, &g_configJsonRoot[handleAs]);
 
 	// If it failed, try to load the default config
 	if (!result) {
@@ -150,7 +165,7 @@ bool loadConfigFile(char* p_name, const ConfigFile_t handleAs)
 		const char* path = buildDefaultConfigPath(p_name);
 
 		// Try to load the file
-		result = fileToJson(p_name, g_configBuffer[handleAs], MAX_CONFIG_SIZE_B, &g_configJsonRoot[handleAs]);;
+		result = fileToJson(p_name, &g_configJsonRoot[handleAs]);;
 
 		// Free the memory
 		free((void*)path);
@@ -171,7 +186,7 @@ bool loadConfigFile(char* p_name, const ConfigFile_t handleAs)
 	return true;
 }
 
-cJSON* getConfig(const ConfigFile_t config)
+cJSON** configGet(const ConfigFile_t config)
 {
 	// Check if the config is loaded
 	if (!g_configAvailable[config]) {
@@ -179,15 +194,15 @@ cJSON* getConfig(const ConfigFile_t config)
 	}
 
 	// If so, return the JSON root object
-	return g_configJsonRoot[config];
+	return &g_configJsonRoot[config];
 }
 
-bool writeConfigToFile(const ConfigFile_t config)
+bool configWriteToFile(const ConfigFile_t config)
 {
 	// Check if the config is loaded
 	if (!g_configAvailable[config]) {
 		return false;
 	}
 
-	return jsonToFile(g_configJsonRoot[config], g_configBuffer[config]);
+	return jsonToFile(g_configJsonRoot[config], g_configNames[config]);
 }

@@ -7,10 +7,6 @@
 #include "freertos/FreeRTOS.h"
 
 /*
- *	Defines
- */
-
-/*
  *	Public Stuff
  */
 
@@ -24,6 +20,7 @@ extern QueueHandle_t g_mainEventQueue;
 typedef enum
 {
 	/* CAN */
+	CAN_DRIVER_CRASHED,
 	RECEIVED_NEW_CAN_MESSAGE,
 
 	/* MAIN */
@@ -37,7 +34,7 @@ typedef enum
 	DISPLAY_STATI_CHANGED,
 } QueueCommand_t;
 
-//! \brief A typedef struct which is used in the event Queues
+//! \brief A typedef struct which is used in the event queues
 typedef struct
 {
 	//! \brief The command of the event

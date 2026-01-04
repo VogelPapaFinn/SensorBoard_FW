@@ -1,16 +1,18 @@
 // Project includes
 #include "EventQueues.h"
-#include "esp_log.h"
+
+// espidf includes
+#include <esp_log.h>
 
 /*
- *	Global variables
+ *	Public variables
  */
 QueueHandle_t g_displayManagerEventQueue = NULL;
 
 QueueHandle_t g_mainEventQueue = NULL;
 
 /*
- *	Public functions
+ *	Public functions implementations
  */
 bool createEventQueues()
 {

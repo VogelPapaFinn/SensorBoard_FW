@@ -304,24 +304,24 @@ bool stopReadingAutomaticSensor(const AutomaticReadSensor_t sensor)
 /*
  *	Private ISR's
  */
-static void IRAM_ATTR speedISR()
+static void speedISR()
 {
 	g_lastTimeOfFallingEdgeSpeed = g_timeOfFallingEdgeSpeed;
 	g_timeOfFallingEdgeSpeed = esp_timer_get_time();
 }
 
-static void IRAM_ATTR rpmISR()
+static void rpmISR()
 {
 	g_lastTimeOfFallingEdgeRPM = g_timeOfFallingEdgeRPM;
 	g_timeOfFallingEdgeRPM = esp_timer_get_time();
 }
 
-static void IRAM_ATTR lIndicatorISR()
+static void lIndicatorISR()
 {
 	g_isLeftIndicatorActive = gpio_get_level(g_automaticSensorGPIOs[L_INDICATOR]);
 }
 
-static void IRAM_ATTR rIndicatorISR()
+static void rIndicatorISR()
 {
 	g_isRightIndicatorActive = gpio_get_level(g_automaticSensorGPIOs[R_INDICATOR]);
 }
@@ -343,7 +343,7 @@ static void sendSensorDataISR(void* p_arg)
 	buffer[7] = g_isRightIndicatorActive;
 
 	// Create the CAN answer frame
-	twai_frame_t* sensorDataFrame = generateCanFrame(CAN_MSG_SENSOR_DATA, g_ownCanSenderId, &buffer, 8);
+	twai_frame_t* sensorDataFrame = generateCanFrame(CAN_MSG_SENSOR_DATA, g_ownCanComId, &buffer, 8);
 
 	// Send the frame
 	queueCanBusMessage(sensorDataFrame, true, true);

@@ -28,17 +28,12 @@
 /*
  *	Prototypes
  */
-void handleCanMessage(const QueueEvent_t* p_queueEvent);
-void enterOperatingMode(const QueueEvent_t* p_queueEvent);
-void readSensorData(const QueueEvent_t* p_queueEvent);
-void handleSensorDataChanged(const QueueEvent_t* p_queueEvent);
-void handleDisplayStatiChanged(const QueueEvent_t* p_queueEvent);
-
-void registrationTimerCallback(void* p_arg);
-void readSensorsDataISR(void* p_arg);
-void sendUUIDRequest(void);
+static void handleCanMessage(const QueueEvent_t* p_queueEvent);
+static void enterOperatingMode(const QueueEvent_t* p_queueEvent);
+static void handleCanDriverCrash(const QueueEvent_t* p_queueEvent);
 
 void debugListAllSpiffsFiles();
+
 /*
  *	Private typedefs
  */
@@ -54,8 +49,9 @@ typedef void (*EventHandlerFunction_t)(const QueueEvent_t* p_queueEvent);
 /*
  *	Private Variables
  */
-const uint8_t g_ownCanSenderId = 0x00;
+uint8_t g_ownCanComId = 0x00;
 static const EventHandlerFunction_t g_eventHandlers[] = {
+	[CAN_DRIVER_CRASHED] = handleCanDriverCrash,
 	[RECEIVED_NEW_CAN_MESSAGE] = handleCanMessage,
 	[REQUEST_UUID] = displayStartRegistrationProcess,
 	[INIT_OPERATION_MODE] = enterOperatingMode,
@@ -63,6 +59,23 @@ static const EventHandlerFunction_t g_eventHandlers[] = {
 const uint8_t g_amountOfEventHandlers = sizeof(g_eventHandlers) / sizeof(EventHandlerFunction_t);
 
 static bool g_operationModeInitialized = false;
+
+/*
+ *	Helper function implementations
+ */
+void debugListAllSpiffsFiles()
+{
+	struct dirent* de;
+	DIR* dr = opendir("/config");
+	if (dr == NULL) {
+		printf("Konnte Verzeichnis nicht öffnen: %s\n", "/config");
+		return;
+	}
+	while ((de = readdir(dr)) != NULL) {
+		printf("Gefundene Datei: %s\n", de->d_name);
+	}
+	closedir(dr);
+}
 
 /*
  *	Main functions
@@ -143,20 +156,11 @@ void enterOperatingMode(const QueueEvent_t* p_queueEvent)
 	}
 }
 
-/*
- *	Function Implementations
- */
-
-void debugListAllSpiffsFiles()
+void handleCanDriverCrash(const QueueEvent_t* p_queueEvent)
 {
-	struct dirent* de;
-	DIR* dr = opendir("/config");
-	if (dr == NULL) {
-		printf("Konnte Verzeichnis nicht öffnen: %s\n", "/config");
-		return;
+	if (recoverCanDriver() == ESP_OK) {
+		ESP_LOGI("main", "Recovered CAN driver");
+	} else {
+		ESP_LOGE("main", "Couldn't recover CAN driver");
 	}
-	while ((de = readdir(dr)) != NULL) {
-		printf("Gefundene Datei: %s\n", de->d_name);
-	}
-	closedir(dr);
 }

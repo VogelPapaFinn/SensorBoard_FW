@@ -31,15 +31,6 @@ typedef struct
 	uint8_t comId;
 } DisplayConfig_t;
 
-//! \brief An enum which represents the GUI's the display can show
-typedef enum
-{
-	SCREEN_TEMPERATURE,
-	SCREEN_SPEED,
-	SCREEN_RPM,
-	SCREEN_UNKNOWN = 255
-} Screen_t;
-
 /*
  *	Private function prototypes
  */
@@ -55,7 +46,7 @@ static uint8_t getComIdFromUuid(const uint8_t* p_uuid);
 //! \brief Generates a new com id for the specified uuid
 //! \param p_uuid The uuid array, usually 6 Bytes long
 //! \retval The comId or 0 if none could be generated
-static uint8_t createComIdForUuid(const uint8_t* p_uuid);
+static uint8_t createConfigForUnknownDevice(const uint8_t* p_uuid);
 
 //! \brief Loads the to be displayed screen for the specified uuid from the config file
 //! \param p_uuid The uuid array of the display. Usually 6 Bytes long
@@ -96,7 +87,7 @@ static DisplayConfig_t g_comIdEntries[AMOUNT_OF_DISPLAYS];
 static void broadcastRegistrationRequestCb(void* p_arg)
 {
 	// Create the can frame
-	twai_frame_t* frame = generateCanFrame(CAN_MSG_REGISTRATION, g_ownCanSenderId, NULL, 0);
+	twai_frame_t* frame = generateCanFrame(CAN_MSG_REGISTRATION, g_ownCanComId, NULL, 0);
 
 	// Send the frame
 	queueCanBusMessage(frame, true, false);
@@ -136,8 +127,10 @@ static uint8_t getComIdFromUuid(const uint8_t* p_uuid)
 	return 0;
 }
 
-static uint8_t createComIdForUuid(const uint8_t* p_uuid)
+static uint8_t createConfigForUnknownDevice(const uint8_t* p_uuid)
 {
+	uint8_t comId = 0;
+
 	// Is the uuid valid?
 	if (p_uuid == NULL) {
 		return 0;
@@ -159,11 +152,57 @@ static uint8_t createComIdForUuid(const uint8_t* p_uuid)
 			g_comIdEntries[i].comId = ++g_amountOfConnectedDisplays;
 
 			// Return the com id
-			return g_comIdEntries[i].comId;
+			comId = g_comIdEntries[i].comId;
+			break;
 		}
 	}
 
-	return 0;
+	// Did we find an empty entry?
+	if (comId == 0) {
+		return 0;
+	}
+
+	/*
+	 *	Put it into the display config
+	*/
+	// Extract the formatted UUID
+	char formattedUuid[FORMATTED_UUID_LENGTH_B];
+	getFormattedUuid(p_uuid, formattedUuid, sizeof(formattedUuid));
+
+	// Get the cJSON root object
+	cJSON* root = *configGet(DISPLAY_CONFIG);
+
+	// Is it valid?
+	if (root == NULL) {
+		ESP_LOGE("DisplayManager", "Got faulty config for %d", DISPLAY_CONFIG);
+		return comId;
+	}
+
+	// Get the display configurations
+	cJSON* displayConfigurationsArray = cJSON_GetObjectItem(root, "displayConfigurations");
+
+	// Are they valid
+	if (displayConfigurationsArray == NULL) {
+		ESP_LOGE("DisplayManager", "Got faulty display configurations from %d", DISPLAY_CONFIG);
+		return comId;
+	}
+
+	// Create a new entry
+	cJSON* newConfigurationEntry = cJSON_CreateObject();
+	cJSON_AddStringToObject(newConfigurationEntry, "hwUuid", formattedUuid);
+	cJSON_AddStringToObject(newConfigurationEntry, "screen", "temperature");
+
+	// Add the entry to the array
+	cJSON_AddItemToArray(displayConfigurationsArray, newConfigurationEntry);
+
+	// Then save the new config
+	if (!configWriteToFile(DISPLAY_CONFIG)) {
+		ESP_LOGE("DisplayManager", "Couldn't write new display configuration to file");
+	} else {
+		ESP_LOGI("DisplayManager", "Written new display configuration to file");
+	}
+
+	return comId;
 }
 
 static uint8_t loadScreenForComIdFromFile(const uint8_t* p_uuid)
@@ -174,7 +213,7 @@ static uint8_t loadScreenForComIdFromFile(const uint8_t* p_uuid)
 	}
 
 	// Get the cJSON root object
-	const cJSON* root = getConfig(DISPLAY_CONFIG);
+	const cJSON* root = *configGet(DISPLAY_CONFIG);
 
 	// Is it valid?
 	if (root == NULL) {
@@ -187,7 +226,7 @@ static uint8_t loadScreenForComIdFromFile(const uint8_t* p_uuid)
 
 	// Are they valid
 	if (displayConfigurationsArray == NULL) {
-		ESP_LOGE("DisplayManager", "Got display configurations from %d", DISPLAY_CONFIG);
+		ESP_LOGE("DisplayManager", "Got faulty display configurations from %d", DISPLAY_CONFIG);
 		return SCREEN_UNKNOWN;
 	}
 
@@ -197,17 +236,37 @@ static uint8_t loadScreenForComIdFromFile(const uint8_t* p_uuid)
 		const cJSON* configuration = cJSON_GetArrayItem(displayConfigurationsArray, i);
 
 		// Get the UUID
-		const cJSON* uuid = cJSON_GetObjectItem(configuration, "comId");
-		if (cJSON_IsString(uuid) && (uuid->valuestring != NULL)) {
-			// Extract the formatted UUID
-			char formattedUuid[FORMATTED_UUID_LENGTH_B];
-			getFormattedUuid(p_uuid, formattedUuid, sizeof(formattedUuid));
-
-			// Is it the same UUID?
-			if (strcmp(uuid->valuestring, formattedUuid) == 0) {
-				return i;
-			}
+		const cJSON* uuid = cJSON_GetObjectItem(configuration, "hwUuid");
+		if (!cJSON_IsString(uuid) || (uuid->valuestring == NULL)) {
+			continue;
 		}
+
+		// Extract the formatted UUID
+		char formattedUuid[FORMATTED_UUID_LENGTH_B];
+		getFormattedUuid(p_uuid, formattedUuid, sizeof(formattedUuid));
+
+		// Is it the same UUID?
+		if (strcmp(uuid->valuestring, formattedUuid) != 0) {
+			continue;
+		}
+
+		// Get the screen from the config and check if its valid
+		const cJSON* screen = cJSON_GetObjectItem(configuration, "screen");
+		if (!cJSON_IsString(screen) || (screen->valuestring == NULL)) {
+			continue;
+		}
+
+		// Then return the screen
+		if (strcmp(screen->valuestring, "temperature") == 0) {
+			return SCREEN_TEMPERATURE;
+		}
+		if (strcmp(screen->valuestring, "speed") == 0) {
+			return SCREEN_SPEED;
+		}
+		if (strcmp(screen->valuestring, "rpm") == 0) {
+			return SCREEN_RPM;
+		}
+		return SCREEN_UNKNOWN;
 	}
 
 	// No match
@@ -233,7 +292,7 @@ static bool getFormattedUuid(const uint8_t* p_uuid, char* p_buffer, const uint8_
 void displayManagerInit()
 {
 	// Load the display config
-	loadConfigFile(DISPLAY_CONFIG_NAME, DISPLAY_CONFIG);
+	configLoadFile(&DISPLAY_CONFIG_NAME[0], DISPLAY_CONFIG);
 
 	// Print the content of the config file
 	// displayPrintConfigFile();
@@ -249,7 +308,7 @@ void displayRestart(const uint8_t comId)
 
 	// Create the can frame answer
 	twai_frame_t* restartFrame =
-		generateCanFrame(CAN_MSG_DISPLAY_RESTART, g_ownCanSenderId, (uint8_t**)&comId, sizeof(comId));
+		generateCanFrame(CAN_MSG_DISPLAY_RESTART, g_ownCanComId, (uint8_t**)&comId, sizeof(comId));
 
 	// Send the frame
 	queueCanBusMessage(restartFrame, true, true);
@@ -298,10 +357,10 @@ void displayRegisterWithUUID(const uint8_t* p_uuid)
 	}
 
 	/*
-	 *	Get the com id if it is an unknown device
+	 *	Create a new configuration if it is an unknown device
 	 */
 	if (comId == 0) {
-		comId = createComIdForUuid(p_uuid);
+		comId = createConfigForUnknownDevice(p_uuid);
 
 		// Couldn't create com id
 		if (comId == 0) {
@@ -348,9 +407,8 @@ void displayRegisterWithUUID(const uint8_t* p_uuid)
 	         canBuffer[1],
 	         canBuffer[2], canBuffer[3], canBuffer[4], canBuffer[5]);
 
-
 	// Create the can frame
-	twai_frame_t* frame = generateCanFrame(CAN_MSG_COMID_ASSIGNATION, g_ownCanSenderId, &canBuffer, sizeof(uint8_t) * CAN_LENGTH_COMID_ASSIGNATION); // NOLINT
+	twai_frame_t* frame = generateCanFrame(CAN_MSG_COMID_ASSIGNATION, g_ownCanComId, &canBuffer, sizeof(uint8_t) * CAN_LENGTH_COMID_ASSIGNATION); // NOLINT
 
 	// Send the frame
 	queueCanBusMessage(frame, true, true);
@@ -368,11 +426,11 @@ void displayPrintConfigFile()
 	// Open the file
 	FILE* file = filesystemOpenFile(DISPLAY_CONFIG_NAME, "r", CONFIG_PARTITION);
 
-	ESP_LOGD("main", "--- Content of 'displays_config.json' ---");
+	ESP_LOGI("main", "--- Content of 'displays_config.json' ---");
 	char line[256];
 	while (fgets(line, sizeof(line), (FILE*)file) != NULL) {
-		printf("%s", line);
+		esp_rom_printf("%s", line);
 	}
-	printf("\n");
-	ESP_LOGD("main", "--- End of 'displays_config.json' ---");
+	esp_rom_printf("\n");
+	ESP_LOGI("main", "--- End of 'displays_config.json' ---");
 }
