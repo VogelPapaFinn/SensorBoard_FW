@@ -13,9 +13,10 @@
 #define FUEL_LEVEL_GPIO GPIO_NUM_13
 #define FUEL_LEVEL_ADC_CHANNEL ADC_CHANNEL_2
 
+#define FUEL_LEVEL_FULL_R 3
+#define FUEL_LEVEL_EMPTY_R 110
+
 #define FUEL_LEVEL_R1 240
-#define FUEL_LEVEL_OFFSET 5.0f
-#define FUEL_LEVEL_TO_PERCENTAGE 115.0f// Divide the calculated resistance by this value to get the level in percent
 
 /*
  *	Private Variables
@@ -29,23 +30,20 @@ static uint8_t g_fuelLevel = false;
 /*
  *	Private functions
  */
-int calculateFuelLevelFromResistance(const double r)
+uint8_t calculateFuelLevelFromResistance(const double r)
 {
-	float resistance = r;
 
-	// Remove the resistance offset
-	resistance -= FUEL_LEVEL_OFFSET;
+	// Check if the resistance is too low
+	if (r < 3.0) return 100;
 
-	// Check if its < 0
-	if (resistance < 0.0f) resistance = 0.0f;
+	// Check if the resistance is too high
+	if (r > 110.0) return 0;
 
-	// Check if its > FUEL_LEVEL_TO_PERCENTAGE - FUEL_LEVEL_OFFSET
-	if (resistance > FUEL_LEVEL_TO_PERCENTAGE - FUEL_LEVEL_OFFSET)
-		resistance = FUEL_LEVEL_TO_PERCENTAGE -
-			FUEL_LEVEL_OFFSET;
-
-	// Then convert it to percent and return it
-	return (int)((resistance / FUEL_LEVEL_TO_PERCENTAGE) * 100.0f);
+	// Linear interpolation
+	// y = y1 + (x - x1) * ((y2 - y1) / (x2 - x1))
+	const double percent = 0.0 + (r - 110.0) * ((100.0 - 0.0) / (3.0 - 110.0));
+	if (percent > 100.0) return 100;
+	return (uint8_t)percent;
 }
 
 /*
