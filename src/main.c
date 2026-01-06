@@ -6,15 +6,14 @@
 #include "can.h"
 #include "can_messages.h"
 #include "statemachine.h"
-#include "ConfigManager.h"
 #include "DisplayManager.h"
+#include "Version.h"
 
 // espidf includes
 #include <esp_mac.h>
 #include <esp_timer.h>
 #include <sys/dirent.h>
 #include <sys/stat.h>
-#include "../../esp-idf/components/json/cJSON/cJSON.h"
 #include "driver/gpio.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
@@ -82,6 +81,8 @@ void debugListAllSpiffsFiles()
  */
 void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 {
+	ESP_LOGI("main", "Firmware Version: %s", VERSION_FULL);
+
 	// Initialize the File Manager
 	filesystemInit();
 
