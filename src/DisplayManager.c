@@ -16,7 +16,10 @@
 #define UUID_LENGTH_B 6
 #define FORMATTED_UUID_LENGTH_B 24
 #define DISPLAY_CONFIG_NAME "displays_config.json"
-#define REGISTRATION_REQUEST_INTERVALL_MICROS (200 * 1000) // 200 milliseconds
+#define REGISTRATION_REQUEST_INTERVAL_MICROS (200 * 1000) // 200 milliseconds
+
+#define FIRMWARE_LENGTH 5
+#define HASH_LENGTH 9
 
 /*
  *	Private typedefs
@@ -29,6 +32,12 @@ typedef struct
 
 	//! \brief The assigned comId. 0 if this entry is faulty/unused
 	uint8_t comId;
+
+	//! \brief The firmware version of the display
+	char* firmwareVersion;
+
+	//! \brief The commit hash of the firmware version
+	char* commitHash;
 } DisplayConfig_t;
 
 /*
@@ -65,6 +74,9 @@ static uint8_t loadScreenForComIdFromFile(const uint8_t* p_uuid);
 //! \retval A bool indicating if the write process was successfull
 static bool getFormattedUuid(const uint8_t* p_uuid, char* p_buffer, uint8_t bufferLength);
 
+//! \brief Debug function to print the content of the configuration file
+static void displayPrintConfigFile();
+
 /*
  *	Private Variables
  */
@@ -84,7 +96,7 @@ static const esp_timer_create_args_t g_registrationTimerConfig = {.callback = &b
                                                                   .name = "Display Registration Timer"};
 
 //! \brief The array which holds the DisplayConfig_t instances
-static DisplayConfig_t g_comIdEntries[AMOUNT_OF_DISPLAYS];
+static DisplayConfig_t g_displayConfigs[AMOUNT_OF_DISPLAYS];
 
 /*
  *	Private functions
@@ -112,10 +124,10 @@ static uint8_t getComIdFromUuid(const uint8_t* p_uuid)
 	// Iterate through the list of all com id entries
 	for (uint8_t i = 0; i < AMOUNT_OF_DISPLAYS; i++) {
 		// Is the entry not empty?
-		if (g_comIdEntries[i].comId != 0) {
+		if (g_displayConfigs[i].comId != 0) {
 			// Extract the formatted UUID for the entry
 			char formattedUuidEntry[FORMATTED_UUID_LENGTH_B];
-			if (!getFormattedUuid((uint8_t*)g_comIdEntries[i].uuid, formattedUuidEntry, sizeof(formattedUuidEntry))) {
+			if (!getFormattedUuid((uint8_t*)g_displayConfigs[i].uuid, formattedUuidEntry, sizeof(formattedUuidEntry))) {
 				ESP_LOGE("DisplayManager", "Couldn't get the formatted uuid entry string");
 				return 0;
 			}
@@ -123,7 +135,7 @@ static uint8_t getComIdFromUuid(const uint8_t* p_uuid)
 			// Check if the uuids match
 			if (strcmp(formattedUuid, formattedUuidEntry) == 0) {
 				// Return com id
-				return g_comIdEntries[i].comId;
+				return g_displayConfigs[i].comId;
 			}
 		}
 	}
@@ -147,20 +159,20 @@ static uint8_t createConfigForUnknownDevice(const uint8_t* p_uuid)
 	// Iterate through the list of all com id entries
 	for (uint8_t i = 0; i < AMOUNT_OF_DISPLAYS; i++) {
 		// Find the first empty entry
-		if (g_comIdEntries[i].comId == 0) {
+		if (g_displayConfigs[i].comId == 0) {
 			// Set the UUID
-			g_comIdEntries[i].uuid[0] = *(p_uuid + 0); // NOLINT
-			g_comIdEntries[i].uuid[1] = *(p_uuid + 1); // NOLINT
-			g_comIdEntries[i].uuid[2] = *(p_uuid + 2); // NOLINT
-			g_comIdEntries[i].uuid[3] = *(p_uuid + 3); // NOLINT
-			g_comIdEntries[i].uuid[4] = *(p_uuid + 4); // NOLINT
-			g_comIdEntries[i].uuid[5] = *(p_uuid + 5); // NOLINT
+			g_displayConfigs[i].uuid[0] = *(p_uuid + 0); // NOLINT
+			g_displayConfigs[i].uuid[1] = *(p_uuid + 1); // NOLINT
+			g_displayConfigs[i].uuid[2] = *(p_uuid + 2); // NOLINT
+			g_displayConfigs[i].uuid[3] = *(p_uuid + 3); // NOLINT
+			g_displayConfigs[i].uuid[4] = *(p_uuid + 4); // NOLINT
+			g_displayConfigs[i].uuid[5] = *(p_uuid + 5); // NOLINT
 
 			// Set the com id
-			g_comIdEntries[i].comId = ++g_amountOfConnectedDisplays;
+			g_displayConfigs[i].comId = ++g_amountOfConnectedDisplays;
 
 			// Save the com id
-			comId = g_comIdEntries[i].comId;
+			comId = g_displayConfigs[i].comId;
 			break;
 		}
 	}
@@ -358,6 +370,20 @@ static bool getFormattedUuid(const uint8_t* p_uuid, char* p_buffer, const uint8_
 	return true;
 }
 
+static void displayPrintConfigFile()
+{
+	// Open the file
+	FILE* file = filesystemOpenFile(DISPLAY_CONFIG_NAME, "r", CONFIG_PARTITION);
+
+	ESP_LOGI("main", "--- Content of 'displays_config.json' ---");
+	char line[256];
+	while (fgets(line, sizeof(line), (FILE*)file) != NULL) {
+		esp_rom_printf("%s", line);
+	}
+	esp_rom_printf("\n");
+	ESP_LOGI("main", "--- End of 'displays_config.json' ---");
+}
+
 /*
  *	Public function implementations
  */
@@ -367,7 +393,7 @@ void displayManagerInit()
 	configLoadFile(&DISPLAY_CONFIG_NAME[0], DISPLAY_CONFIG);
 
 	// Print the content of the config file
-	// displayPrintConfigFile();
+	displayPrintConfigFile();
 }
 
 void displayRestart(const uint8_t comId)
@@ -401,7 +427,7 @@ void displayStartRegistrationProcess()
 	esp_timer_create(&g_registrationTimerConfig, &g_registrationTimerHandle);
 
 	// Then start the timer
-	esp_timer_start_periodic(g_registrationTimerHandle, (uint64_t)REGISTRATION_REQUEST_INTERVALL_MICROS);
+	esp_timer_start_periodic(g_registrationTimerHandle, (uint64_t)REGISTRATION_REQUEST_INTERVAL_MICROS);
 }
 
 void displayRegisterWithUUID(const uint8_t* p_uuid)
@@ -454,7 +480,7 @@ void displayRegisterWithUUID(const uint8_t* p_uuid)
 	/*
 	 *	Create and send the CAN message
 	 */
-	uint8_t* canBuffer = malloc(sizeof(uint8_t) * CAN_LENGTH_COMID_ASSIGNATION);
+	uint8_t* canBuffer = malloc(sizeof(uint8_t) * 8);
 	if (canBuffer == NULL) {
 		return;
 	}
@@ -480,7 +506,7 @@ void displayRegisterWithUUID(const uint8_t* p_uuid)
 	         canBuffer[2], canBuffer[3], canBuffer[4], canBuffer[5]);
 
 	// Create the can frame
-	twai_frame_t* frame = generateCanFrame(CAN_MSG_COMID_ASSIGNATION, g_ownCanComId, &canBuffer, sizeof(uint8_t) * CAN_LENGTH_COMID_ASSIGNATION); // NOLINT
+	twai_frame_t* frame = generateCanFrame(CAN_MSG_COMID_ASSIGNATION, g_ownCanComId, &canBuffer, sizeof(uint8_t) * 8); // NOLINT
 
 	// Send the frame
 	queueCanBusMessage(frame, true, true);
@@ -493,16 +519,100 @@ void displayRegisterWithUUID(const uint8_t* p_uuid)
 	}
 }
 
-void displayPrintConfigFile()
+void displaySetFirmwareVersion(const uint8_t comId, const uint8_t* p_firmware)
 {
-	// Open the file
-	FILE* file = filesystemOpenFile(DISPLAY_CONFIG_NAME, "r", CONFIG_PARTITION);
-
-	ESP_LOGI("main", "--- Content of 'displays_config.json' ---");
-	char line[256];
-	while (fgets(line, sizeof(line), (FILE*)file) != NULL) {
-		esp_rom_printf("%s", line);
+	if (p_firmware == NULL) {
+		return;
 	}
-	esp_rom_printf("\n");
-	ESP_LOGI("main", "--- End of 'displays_config.json' ---");
+
+	DisplayConfig_t* config = NULL;
+
+	// Iterate through all display configs
+	for (uint8_t i = 0; i < AMOUNT_OF_DISPLAYS; i++) {
+		// Is it the correct display configuration?
+		if (g_displayConfigs[i].comId == comId) {
+			config = &g_displayConfigs[i];
+
+			break;
+		}
+	}
+
+	// Did we find a config?
+	if (config == NULL) {
+		ESP_LOGE("DisplayManager", "Couldn't find a display config for comId %d", comId);
+
+		return;
+	}
+
+	// Allocate needed memory
+	config->firmwareVersion = malloc(FIRMWARE_LENGTH);
+	if (config->firmwareVersion == NULL) {
+		ESP_LOGE("DisplayManager", "Couldn't allocate memory for the firmware stringf of comId %d", comId);
+
+		return;
+	}
+	memset(config->firmwareVersion, ' ', FIRMWARE_LENGTH);
+	config->firmwareVersion[FIRMWARE_LENGTH - 1] = '\0';
+
+	// Is it a beta version?
+	if (*p_firmware == true) {
+		config->firmwareVersion[0] = 'b';
+	}
+
+	// Get the major version
+	config->firmwareVersion[1] = (char)*++p_firmware;
+
+	// Get the minor version
+	config->firmwareVersion[2] = (char)*++p_firmware;
+
+	// Get the patch version
+	config->firmwareVersion[3] = (char)*++p_firmware;
+
+	// Logging
+	ESP_LOGI("DisplayManager", "Received firmware version: %c%c.%c.%c for com id: %d", config->firmwareVersion[0], config->firmwareVersion[1], config->firmwareVersion[2], config->firmwareVersion[3], comId);
+}
+
+void displaySetCommitInformation(const uint8_t comId, const uint8_t* p_information)
+{
+	if (p_information == NULL) {
+		return;
+	}
+
+	// Iterate through all display configs
+	DisplayConfig_t* config = NULL;
+	for (uint8_t i = 0; i < AMOUNT_OF_DISPLAYS; i++) {
+		// Is it the correct display configuration?
+		if (g_displayConfigs[i].comId == comId) {
+			config = &g_displayConfigs[i];
+
+			break;
+		}
+	}
+
+	// Did we find a config?
+	if (config == NULL) {
+		ESP_LOGE("DisplayManager", "Couldn't find a display config for comId %d", comId);
+
+		return;
+	}
+
+	// Allocate needed memory
+	config->commitHash = malloc(HASH_LENGTH);
+	if (config->commitHash == NULL) {
+		ESP_LOGE("DisplayManager", "Couldn't allocate memory for the firmware string of comId %d", comId);
+
+		return;
+	}
+	memset(config->commitHash, ' ', HASH_LENGTH);
+	config->commitHash[HASH_LENGTH - 1] = '\0';
+
+	// Get all chars
+	for (uint8_t i = 0; i < HASH_LENGTH - 1; i++) {
+		config->commitHash[i] = (char)*(p_information + i);
+	}
+
+	// Is it dirty version?
+	if (*(p_information + 7) == true) {
+		config->commitHash[HASH_LENGTH - 2] = 'd';
+	}
 }

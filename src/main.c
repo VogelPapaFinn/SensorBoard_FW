@@ -126,14 +126,73 @@ void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 
 void handleCanMessage(const QueueEvent_t* p_queueEvent)
 {
-	ESP_LOGI("main", "Received new can message");
-
 	// Get the frame
 	const twai_frame_t recFrame = p_queueEvent->canFrame;
+
+	// Get the message id
+	const uint8_t messageId = recFrame.header.id >> CAN_FRAME_HEADER_OFFSET;
+
+	// Get the sender com id
+	const uint32_t senderComId = (uint8_t)recFrame.header.id;
+
+	ESP_LOGI("main", "Received new can message %d from sender %d", messageId, senderComId);
+
 	// Registration process
-	if ((recFrame.header.id >> CAN_FRAME_HEADER_OFFSET) == CAN_MSG_REGISTRATION && recFrame.buffer_len >= 6) {
+	if (messageId == CAN_MSG_REGISTRATION && recFrame.buffer_len >= 6) {
 		// Send it to the Display Manager
 		displayRegisterWithUUID(p_queueEvent->canFrame.buffer);
+
+		/*
+		 * Request the firmware version
+		 */
+		// Create the buffer for the request CAN frame
+		uint8_t* buffer = malloc(sizeof(uint8_t) * 1);
+		if (buffer == NULL) {
+			return;
+		}
+		buffer[0] = senderComId;
+
+		// Create the CAN answer frame
+		twai_frame_t* requestFrame = generateCanFrame(CAN_MSG_REQUEST_FIRMWARE_VERSION, g_ownCanComId, &buffer, 1);
+
+		// Send the frame
+		queueCanBusMessage(requestFrame, true, true);
+
+		return;
+	}
+
+	// Answer to the firmware version request
+	if (messageId == CAN_MSG_REQUEST_FIRMWARE_VERSION && recFrame.buffer_len >= 4) {
+		/*
+		 *	Pass it to the Display Manager
+		 */
+		displaySetFirmwareVersion(senderComId, p_queueEvent->canFrame.buffer);
+
+		/*
+		 * Request the Commit Information
+		 */
+		// Create the buffer for the request CAN frame
+		uint8_t* buffer = malloc(sizeof(uint8_t) * 1);
+		if (buffer == NULL) {
+			return;
+		}
+		buffer[0] = senderComId;
+
+		// Create the CAN answer frame
+		twai_frame_t* requestFrame = generateCanFrame(CAN_MSG_REQUEST_COMMIT_INFORMATION, g_ownCanComId, &buffer, 1);
+
+		// Send the frame
+		queueCanBusMessage(requestFrame, true, true);
+
+		return;
+	}
+
+	// Answer to the commit information request
+	if (messageId == CAN_MSG_REQUEST_COMMIT_INFORMATION && recFrame.buffer_len >= 4) {
+		/*
+		 *	Pass it to the Display Manager
+		 */
+		displaySetCommitInformation(senderComId, p_queueEvent->canFrame.buffer);
 
 		return;
 	}

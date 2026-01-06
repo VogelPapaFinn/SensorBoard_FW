@@ -20,5 +20,6 @@ void displayStartRegistrationProcess();
 //! \param p_uuid The uuid array of the display. Usually 6 Bytes long
 void displayRegisterWithUUID(const uint8_t* p_uuid);
 
-//! \brief Debug function to print the content of the configuration file
-void displayPrintConfigFile();
+void displaySetFirmwareVersion(uint8_t comId, const uint8_t* p_firmware);
+
+void displaySetCommitInformation(uint8_t comId, const uint8_t* p_information);
