@@ -48,7 +48,7 @@ bool sensorsInitSpeedSensor()
 	// Setup GPIO
 	gpio_set_direction(SPEED_GPIO, GPIO_MODE_INPUT);
 	gpio_set_pull_mode(SPEED_GPIO, GPIO_PULLDOWN_ONLY);
-	gpio_set_intr_type(SPEED_GPIO, GPIO_INTR_ANYEDGE);
+	gpio_set_intr_type(SPEED_GPIO, GPIO_INTR_POSEDGE);
 
 	// Activate the ISR
 	if (gpio_isr_handler_add(SPEED_GPIO, speedISR, NULL) != ESP_OK) {
@@ -63,13 +63,17 @@ bool sensorsInitSpeedSensor()
 uint8_t sensorsGetSpeed()
 {
 	// Calculate how much time between the two falling edges was
-	const int64_t time = g_timeOfFallingEdge - g_lastTimeOfFallingEdge;
+	int64_t time = 0;
+	if (g_lastTimeOfFallingEdge != 0) {
+		time = g_timeOfFallingEdge - g_lastTimeOfFallingEdge;
+		g_lastTimeOfFallingEdge = 0; // Reset the time of the last falling edge, to detect if the rpm signal was lost
+	}
 
 	// Convert the time to seconds
-	const double seconds = (float)time / 1000.0f;
+	const float seconds = (float)time / 1000000.0f;
 
 	// Then save the speed frequency (rounded)
-	const double speedInHz = (int)round(1000.0 / seconds);
+	const double speedInHz = (int)round(1.0 / seconds);
 
 	// Convert the frequency to actual speed
 	return calculateSpeedFromFrequency(speedInHz);

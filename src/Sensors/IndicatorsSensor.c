@@ -31,10 +31,10 @@ bool sensorsInitIndicatorsSensor()
 
 bool sensorsIsLeftIndicatorActive()
 {
-	return gpio_get_level(LEFT_INDICATOR_GPIO);;
+	return gpio_get_level(LEFT_INDICATOR_GPIO);
 }
 
 bool sensorsIsRightIndicatorActive()
 {
-	return gpio_get_level(RIGHT_INDICATOR_GPIO);;
+	return gpio_get_level(RIGHT_INDICATOR_GPIO);
 }
