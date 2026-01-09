@@ -1,4 +1,6 @@
 {
-  "displayConfigurations": [
-  ]
+  "displayConfigurations": [{
+    "hwUuid":       "180-58-69-186-244-208",
+    "screen":       "rpm"
+  }]
 }

@@ -1,13 +1,13 @@
 // Project includes
 #include "FilesystemDriver.h"
+#include "../include/WebInterface/WebInterface.h"
+#include "DisplayManager.h"
+#include "DisplayUpdate.h"
 #include "EventQueues.h"
 #include "SensorManager.h"
-#include "../include/WebInterface/WebInterface.h"
+#include "Version.h"
 #include "can.h"
 #include "can_messages.h"
-#include "statemachine.h"
-#include "DisplayManager.h"
-#include "Version.h"
 
 // espidf includes
 #include <esp_mac.h>
@@ -81,6 +81,7 @@ void debugListAllSpiffsFiles()
  */
 void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 {
+	ESP_LOGI("main", "--- --- --- --- --- --- ---");
 	ESP_LOGI("main", "Firmware Version: %s", VERSION_FULL);
 
 	// Initialize the File Manager
@@ -96,11 +97,11 @@ void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 	displayManagerInit();
 
 	// Initialize the can node
-	initializeCanNode(GPIO_NUM_43, GPIO_NUM_2);
-	enableCanNode();
+	canInitializeNode(GPIO_NUM_43, GPIO_NUM_2);
+	canEnableNode();
 
 	// Register the queue to the CAN bus
-	registerCanRxCbQueue(&g_mainEventQueue);
+	canRegisterRxCbQueue(&g_mainEventQueue);
 
 	// Send a UUID Request
 	QueueEvent_t initRequest;
@@ -130,33 +131,33 @@ void handleCanMessage(const QueueEvent_t* p_queueEvent)
 	const twai_frame_t recFrame = p_queueEvent->canFrame;
 
 	// Get the message id
-	const uint8_t messageId = recFrame.header.id >> CAN_FRAME_HEADER_OFFSET;
+	const uint8_t messageId = recFrame.header.id >> CAN_MESSAGE_ID_OFFSET;
 
 	// Get the sender com id
-	const uint32_t senderComId = (uint8_t)recFrame.header.id;
+	uint8_t senderComId = recFrame.header.id & 0x1FFFFF; // Zero top 8 bits
 
-	ESP_LOGI("main", "Received new can message %d from sender %d", messageId, senderComId);
+	// ESP_LOGI("main", "Received new can message %d from sender %d", messageId, senderComId);
 
 	// Registration process
 	if (messageId == CAN_MSG_REGISTRATION && recFrame.buffer_len >= 6) {
 		// Send it to the Display Manager
-		displayRegisterWithUUID(p_queueEvent->canFrame.buffer);
+		senderComId = displayRegisterWithUUID(p_queueEvent->canFrame.buffer);
 
 		/*
-		 * Request the firmware version
+		 *	Request the firmware version
 		 */
-		// Create the buffer for the request CAN frame
-		uint8_t* buffer = malloc(sizeof(uint8_t) * 1);
-		if (buffer == NULL) {
-			return;
-		}
-		buffer[0] = senderComId;
 
 		// Create the CAN answer frame
-		twai_frame_t* requestFrame = generateCanFrame(CAN_MSG_REQUEST_FIRMWARE_VERSION, g_ownCanComId, &buffer, 1);
+		TwaiFrame_t frame;
+
+		// Set the com id
+		frame.buffer[0] = senderComId;
+
+		// Initiate the frame
+		canInitiateFrame(&frame, CAN_MSG_REQUEST_FIRMWARE_VERSION, g_ownCanComId, 1);
 
 		// Send the frame
-		queueCanBusMessage(requestFrame, true, true);
+		canQueueFrame(&frame);
 
 		return;
 	}
@@ -171,18 +172,17 @@ void handleCanMessage(const QueueEvent_t* p_queueEvent)
 		/*
 		 * Request the Commit Information
 		 */
-		// Create the buffer for the request CAN frame
-		uint8_t* buffer = malloc(sizeof(uint8_t) * 1);
-		if (buffer == NULL) {
-			return;
-		}
-		buffer[0] = senderComId;
-
 		// Create the CAN answer frame
-		twai_frame_t* requestFrame = generateCanFrame(CAN_MSG_REQUEST_COMMIT_INFORMATION, g_ownCanComId, &buffer, 1);
+		TwaiFrame_t frame;
+
+		// Set the com id
+		frame.buffer[0] = senderComId;
+
+		// Initiate the frame
+		canInitiateFrame(&frame, CAN_MSG_REQUEST_COMMIT_INFORMATION, g_ownCanComId, 1);
 
 		// Send the frame
-		queueCanBusMessage(requestFrame, true, true);
+		canQueueFrame(&frame);
 
 		return;
 	}
@@ -194,19 +194,23 @@ void handleCanMessage(const QueueEvent_t* p_queueEvent)
 		 */
 		displaySetCommitInformation(senderComId, p_queueEvent->canFrame.buffer);
 
+		// Check for updates
+		displayUpdateNegotiate(senderComId);
 		return;
 	}
 
-	ESP_LOGW("main", "Received unknown can message with command id %d", (recFrame.header.id >> CAN_FRAME_HEADER_OFFSET));
+	if (messageId >= CAN_MSG_INIT_UPDATE_MODE && messageId <= CAN_MSG_EXECUTE_UPDATE) {
+		// Pass it to the display update handler
+		xQueueSend(g_updateDisplayEventQueue, p_queueEvent, pdMS_TO_TICKS(100));
+
+		return;
+	}
 }
 
 void enterOperatingMode(const QueueEvent_t* p_queueEvent)
 {
 	// Are we not yet initialized?
 	if (g_operationModeInitialized == false) {
-		// Enter the operating mode
-		setCurrentState(STATE_OPERATING);
-
 		// Start the Webinterface
 		// startWebInterface(GET_FROM_CONFIG);
 
@@ -223,7 +227,7 @@ void enterOperatingMode(const QueueEvent_t* p_queueEvent)
 
 void handleCanDriverCrash(const QueueEvent_t* p_queueEvent)
 {
-	if (recoverCanDriver() == ESP_OK) {
+	if (canRecoverDriver() == ESP_OK) {
 		ESP_LOGI("main", "Recovered CAN driver");
 	} else {
 		ESP_LOGE("main", "Couldn't recover CAN driver");

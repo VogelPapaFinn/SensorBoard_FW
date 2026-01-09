@@ -53,6 +53,13 @@ bool filesystemDeleteFile(const char* p_path, Location_t location);
 //! \note The SPIFFS filesystem unfortunately does not support directories
 bool filesystemSDCardDoesDirectoryExist(const char* p_dir);
 
+//! \brief Lists all file names in the specified location
+//! \param p_dir The path to the directory without "/sdcard/"
+//! \param p_amount OUT parameter, which is used to specify how many files where found
+//! \retval A pointer to an array of file names, or NULL if there are none. Needs to be freed after use
+//! \note The SPIFFS filesystem unfortunately does not support directories
+struct dirent** filesystemSDCardListDirectoryContents(const char* p_dir, uint16_t* p_amount);
+
 //! \brief Creates a directory at the specified path on the SD Card
 //! \param p_path The path to the directory without "/sdcard/"
 //! \retval True if it was successful - False if it wasn't

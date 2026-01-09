@@ -52,7 +52,7 @@ bool sensorsInitInternalTemperatureSensor(const adc_oneshot_unit_handle_t* p_adc
 	// // Create the internal sensor
 	// if (temperature_sensor_install(&temp_sensor_config, &temp_handle) != ESP_OK) {
 	// 	ESP_LOGE("InternalTemperatureSensor", "Couldn't create the ESP32 internal temperature sensor");
-	// 
+	//
 	// 	return false;
 	// }
 	//

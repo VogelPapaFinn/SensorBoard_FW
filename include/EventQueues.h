@@ -9,9 +9,8 @@
 /*
  *	Public Stuff
  */
-
-//! \brief The Queue used to send events to the display manager
-extern QueueHandle_t g_displayManagerEventQueue;
+//! \brief The Queue used to update the displays
+extern QueueHandle_t g_updateDisplayEventQueue;
 
 //! \brief The Queue used to send events to the main application (main.c)
 extern QueueHandle_t g_mainEventQueue;
@@ -32,6 +31,13 @@ typedef enum
 	INIT_OPERATION_MODE,
 	READ_SENSOR_DATA,
 	RESTART_DISPLAY,
+
+	/*
+	 *	UPDATE
+	 */
+	INITIALIZE_UPDATE,
+	TRANSMIT_UPDATE,
+	EXECUTE_UPDATE,
 } QueueCommand_t;
 
 //! \brief A typedef struct which is used in the event queues

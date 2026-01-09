@@ -16,7 +16,7 @@
 #define UUID_LENGTH_B 6
 #define FORMATTED_UUID_LENGTH_B 24
 #define DISPLAY_CONFIG_NAME "displays_config.json"
-#define REGISTRATION_REQUEST_INTERVAL_MICROS (200 * 1000) // 200 milliseconds
+#define REGISTRATION_REQUEST_INTERVAL_MICROS (1000 * 1000) // 1000 milliseconds
 
 #define FIRMWARE_LENGTH 5
 #define HASH_LENGTH 9
@@ -103,11 +103,14 @@ static DisplayConfig_t g_displayConfigs[AMOUNT_OF_DISPLAYS];
  */
 static void broadcastRegistrationRequestCb(void* p_arg)
 {
-	// Create the can frame
-	twai_frame_t* frame = generateCanFrame(CAN_MSG_REGISTRATION, g_ownCanComId, NULL, 0);
+	// Create the CAN answer frame
+	TwaiFrame_t frame;
+
+	// Initiate the frame
+	canInitiateFrame(&frame, CAN_MSG_REGISTRATION, g_ownCanComId, 0);
 
 	// Send the frame
-	queueCanBusMessage(frame, true, false);
+	canQueueFrame(&frame);
 }
 
 static uint8_t getComIdFromUuid(const uint8_t* p_uuid)
@@ -133,6 +136,7 @@ static uint8_t getComIdFromUuid(const uint8_t* p_uuid)
 			}
 
 			// Check if the uuids match
+			ESP_LOGI("DisplayManager", "%s %s", formattedUuid, formattedUuidEntry);
 			if (strcmp(formattedUuid, formattedUuidEntry) == 0) {
 				// Return com id
 				return g_displayConfigs[i].comId;
@@ -230,7 +234,8 @@ static uint8_t createConfigForUnknownDevice(const uint8_t* p_uuid)
 	// Then save the new config
 	if (!configWriteToFile(DISPLAY_CONFIG)) {
 		ESP_LOGE("DisplayManager", "Couldn't write new display configuration to file");
-	} else {
+	}
+	else {
 		ESP_LOGI("DisplayManager", "Written new display configuration to file");
 	}
 
@@ -404,12 +409,17 @@ void displayRestart(const uint8_t comId)
 		return;
 	}
 
-	// Create the can frame answer
-	twai_frame_t* restartFrame =
-		generateCanFrame(CAN_MSG_DISPLAY_RESTART, g_ownCanComId, (uint8_t**)&comId, sizeof(comId));
+	// Create the CAN answer frame
+	TwaiFrame_t frame;
+
+	// Set the com id
+	frame.buffer[0] = comId;
+
+	// Initiate the frame
+	canInitiateFrame(&frame, CAN_MSG_DISPLAY_RESTART, g_ownCanComId, 1);
 
 	// Send the frame
-	queueCanBusMessage(restartFrame, true, true);
+	canQueueFrame(&frame);
 }
 
 void displayStartRegistrationProcess()
@@ -430,12 +440,12 @@ void displayStartRegistrationProcess()
 	esp_timer_start_periodic(g_registrationTimerHandle, (uint64_t)REGISTRATION_REQUEST_INTERVAL_MICROS);
 }
 
-void displayRegisterWithUUID(const uint8_t* p_uuid)
+uint8_t displayRegisterWithUUID(const uint8_t* p_uuid)
 {
 	// Check if uuid is valid
 	if (p_uuid == NULL) {
 		ESP_LOGE("DisplayManager", "Received a NULL ID in the registration process");
-		return;
+		return 0;
 	}
 
 	/*
@@ -450,7 +460,7 @@ void displayRegisterWithUUID(const uint8_t* p_uuid)
 		if (comId == 0) {
 			ESP_LOGW("DisplayManager", "A device tried to register itself but we already know %d devices",
 			         AMOUNT_OF_DISPLAYS);
-			return;
+			return 0;
 		}
 	}
 
@@ -463,7 +473,7 @@ void displayRegisterWithUUID(const uint8_t* p_uuid)
 		// Couldn't create com id
 		if (comId == 0) {
 			ESP_LOGE("DisplayManager", "Couldn't create com id for newly registered device");
-			return;
+			return 0;
 		}
 	}
 
@@ -480,43 +490,47 @@ void displayRegisterWithUUID(const uint8_t* p_uuid)
 	/*
 	 *	Create and send the CAN message
 	 */
-	uint8_t* canBuffer = malloc(sizeof(uint8_t) * 8);
-	if (canBuffer == NULL) {
-		return;
-	}
+	// Create the CAN answer frame
+	TwaiFrame_t frame;
 
 	// Insert the UUID
-	canBuffer[0] = *(p_uuid + 0); // NOLINT
-	canBuffer[1] = *(p_uuid + 1); // NOLINT
-	canBuffer[2] = *(p_uuid + 2); // NOLINT
-	canBuffer[3] = *(p_uuid + 3); // NOLINT
-	canBuffer[4] = *(p_uuid + 4); // NOLINT
-	canBuffer[5] = *(p_uuid + 5); // NOLINT
+	frame.buffer[0] = *(p_uuid + 0); // NOLINT
+	frame.buffer[1] = *(p_uuid + 1); // NOLINT
+	frame.buffer[2] = *(p_uuid + 2); // NOLINT
+	frame.buffer[3] = *(p_uuid + 3); // NOLINT
+	frame.buffer[4] = *(p_uuid + 4); // NOLINT
+	frame.buffer[5] = *(p_uuid + 5); // NOLINT
 
 	// Insert the com id
-	canBuffer[6] = comId; // NOLINT
+	frame.buffer[6] = comId; // NOLINT
 
 	// Insert the screen
-	canBuffer[7] = screen; // NOLINT
+	frame.buffer[7] = screen; // NOLINT
 
-	// Logging
-	ESP_LOGI("DisplayManager", "Sending ID '%d' and screen '%d' to UUID '%d-%d-%d-%d-%d-%d'", canBuffer[6],
-	         canBuffer[7], canBuffer[0],
-	         canBuffer[1],
-	         canBuffer[2], canBuffer[3], canBuffer[4], canBuffer[5]);
-
-	// Create the can frame
-	twai_frame_t* frame = generateCanFrame(CAN_MSG_COMID_ASSIGNATION, g_ownCanComId, &canBuffer, sizeof(uint8_t) * 8); // NOLINT
+	// Initiate the frame
+	canInitiateFrame(&frame, CAN_MSG_COMID_ASSIGNATION, g_ownCanComId, 8);
 
 	// Send the frame
-	queueCanBusMessage(frame, true, true);
+	canQueueFrame(&frame);
+
+	// Logging
+	ESP_LOGI("DisplayManager", "Sending ID '%d' and screen '%d' to UUID '%d-%d-%d-%d-%d-%d'", frame.buffer[6],
+	         frame.buffer[7], frame.buffer[0],
+	         frame.buffer[1],
+	         frame.buffer[2], frame.buffer[3], frame.buffer[4], frame.buffer[5]);
 
 	// Check if all devices registered
 	if (g_registrationProcessActive && g_amountOfConnectedDisplays >= AMOUNT_OF_DISPLAYS) {
+		// Stop and delete the registration timer
+		esp_timer_stop(g_registrationTimerHandle);
+
+		// Enter the operation mode
 		QueueEvent_t event;
 		event.command = INIT_OPERATION_MODE;
 		xQueueSend(g_mainEventQueue, &event, pdMS_TO_TICKS(100));
 	}
+
+	return comId;
 }
 
 void displaySetFirmwareVersion(const uint8_t comId, const uint8_t* p_firmware)
@@ -569,7 +583,8 @@ void displaySetFirmwareVersion(const uint8_t comId, const uint8_t* p_firmware)
 	config->firmwareVersion[3] = (char)*++p_firmware;
 
 	// Logging
-	ESP_LOGI("DisplayManager", "Received firmware version: %c%c.%c.%c for com id: %d", config->firmwareVersion[0], config->firmwareVersion[1], config->firmwareVersion[2], config->firmwareVersion[3], comId);
+	ESP_LOGI("DisplayManager", "Received firmware version: %c%c.%c.%c for com id: %d", config->firmwareVersion[0],
+	         config->firmwareVersion[1], config->firmwareVersion[2], config->firmwareVersion[3], comId);
 }
 
 void displaySetCommitInformation(const uint8_t comId, const uint8_t* p_information)

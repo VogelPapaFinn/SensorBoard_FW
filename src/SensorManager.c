@@ -72,26 +72,25 @@ static void sendSensorDataISR(void* p_arg)
 	sensorsReadOilPressure();
 	sensorsReadInternalTemperature();
 
-	// Create the buffer for the answer CAN frame
-	uint8_t* buffer = malloc(sizeof(uint8_t) * 8);
-	if (buffer == NULL) {
-		return;
-	}
-	buffer[0] = sensorsGetSpeed();
-	uint16_t rpm = sensorsGetRpm();
-	buffer[1] = rpm >> 8;
-	buffer[2] = (uint8_t)rpm;
-	buffer[3] = sensorsGetFuelLevel();
-	buffer[4] = sensorsGetWaterTemperature();
-	buffer[5] = sensorsIsOilPressurePresent();
-	buffer[6] = sensorsIsLeftIndicatorActive();
-	buffer[7] = sensorsIsRightIndicatorActive();
-
 	// Create the CAN answer frame
-	twai_frame_t* sensorDataFrame = generateCanFrame(CAN_MSG_SENSOR_DATA, g_ownCanComId, &buffer, 8);
+	TwaiFrame_t frame;
+
+	// Set the buffer content
+	frame.buffer[0] = sensorsGetSpeed();
+	const uint16_t rpm = sensorsGetRpm();
+	frame.buffer[1] = rpm >> 8;
+	frame.buffer[2] = (uint8_t)rpm;
+	frame.buffer[3] = sensorsGetFuelLevel();
+	frame.buffer[4] = sensorsGetWaterTemperature();
+	frame.buffer[5] = sensorsIsOilPressurePresent();
+	frame.buffer[6] = sensorsIsLeftIndicatorActive();
+	frame.buffer[7] = sensorsIsRightIndicatorActive();
+
+	// Initiate the frame
+	canInitiateFrame(&frame, CAN_MSG_SENSOR_DATA, g_ownCanComId, 8);
 
 	// Send the frame
-	queueCanBusMessage(sensorDataFrame, true, true);
+	// canQueueFrame(&frame);
 }
 
 /*

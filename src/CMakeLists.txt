@@ -30,6 +30,10 @@ set(FILES
         "../include/SensorManager.h"
         "SensorManager.c"
 
+        # Display Update
+        "../include/DisplayUpdate.h"
+        "DisplayUpdate.c"
+
         # Sensors
         "../include/Sensors/FuelLevelSensor.h"
         "../include/Sensors/IndicatorsSensor.h"
@@ -56,7 +60,7 @@ set(FILES
 )
 
 idf_component_register(SRCS ${FILES}
-        PRIV_REQUIRES src driver spi_flash esp_psram esp_adc fatfs spiffs esp_wifi esp_http_server nvs_flash can esp_timer statemachine
+        PRIV_REQUIRES src driver spi_flash esp_psram esp_adc fatfs spiffs esp_wifi esp_http_server nvs_flash can esp_timer
         INCLUDE_DIRS "../include" "."
         EMBED_TXTFILES  "" # For Files
         EMBED_FILES "") # For images

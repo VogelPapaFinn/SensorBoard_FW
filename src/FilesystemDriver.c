@@ -4,6 +4,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/unistd.h>
+#include <dirent.h>
 
 // esp-idf includes
 #include "driver/sdmmc_host.h"
@@ -369,10 +370,10 @@ bool filesystemDeleteFile(const char* p_path, const Location_t location)
 	return result;
 }
 
-bool fileManagerDoesDirectoryExist(const char* p_dir)
+bool filesystemSDCardDoesDirectoryExist(const char* p_dir)
 {
 	// Check if the sdcard is mounted
-	if (isLocationMounted(SD_CARD)) {
+	if (!isLocationMounted(SD_CARD)) {
 		return false;
 	}
 
@@ -389,6 +390,41 @@ bool fileManagerDoesDirectoryExist(const char* p_dir)
 
 	// Return result
 	return result;
+}
+
+struct dirent** filesystemSDCardListDirectoryContents(const char* p_dir, uint16_t* p_amount)
+{
+	*p_amount = 0;
+
+	// Check if directory exists
+	if (!filesystemSDCardDoesDirectoryExist(p_dir)) {
+		return NULL;
+	}
+
+	// Build the whole path
+	const char* fullPath = buildFullPath(p_dir, SD_CARD);
+
+	// Open the directory
+	DIR* dir = opendir(fullPath);
+	if (dir == NULL) {
+		free((void*)fullPath);
+		return NULL;
+	}
+
+	// Scan the directory
+	struct dirent **fileList;
+	const int amountOfFiles = scandir(fullPath, &fileList, NULL, alphasort);
+	if (amountOfFiles > 0) {
+		*p_amount = amountOfFiles;
+	}
+
+	// Close the directory
+	closedir(dir);
+
+	// Free the memory
+	free((void*)fullPath);
+
+	return fileList;
 }
 
 bool fileManagerCreateDir(const char* p_path)
@@ -484,7 +520,7 @@ void filesystemTest()
 	}
 
 	// Check if these locations exists on the SD Card
-	if (fileManagerDoesDirectoryExist("location")) {
+	if (filesystemSDCardDoesDirectoryExist("location")) {
 		ESP_LOGI("FilesystemDriver", "The location exists on the SD Card!");
 	}
 	else {

@@ -18,7 +18,8 @@ void displayStartRegistrationProcess();
 
 //! \brief Registers a display with the given uuid
 //! \param p_uuid The uuid array of the display. Usually 6 Bytes long
-void displayRegisterWithUUID(const uint8_t* p_uuid);
+//! \retval Returns the new comid or 0 if an error occured
+uint8_t displayRegisterWithUUID(const uint8_t* p_uuid);
 
 void displaySetFirmwareVersion(uint8_t comId, const uint8_t* p_firmware);
 
