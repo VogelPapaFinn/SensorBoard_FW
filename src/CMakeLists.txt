@@ -30,9 +30,9 @@ set(FILES
         "../include/SensorManager.h"
         "SensorManager.c"
 
-        # Display Update
-        "../include/DisplayUpdate.h"
-        "DisplayUpdate.c"
+        # Display Can Update
+        "../include/UpdateManagers/DisplayCanUpdater.h"
+        "UpdateManagers/DisplayCanUpdater.c"
 
         # Sensors
         "../include/Sensors/FuelLevelSensor.h"

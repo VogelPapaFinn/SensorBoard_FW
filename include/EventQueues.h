@@ -10,7 +10,7 @@
  *	Public Stuff
  */
 //! \brief The Queue used to update the displays
-extern QueueHandle_t g_updateDisplayEventQueue;
+extern QueueHandle_t g_displayCanUpdateEventQueue;
 
 //! \brief The Queue used to send events to the main application (main.c)
 extern QueueHandle_t g_mainEventQueue;

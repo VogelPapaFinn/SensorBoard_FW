@@ -11,7 +11,7 @@ QueueHandle_t g_displayManagerEventQueue = NULL;
 
 QueueHandle_t g_mainEventQueue = NULL;
 
-QueueHandle_t g_updateDisplayEventQueue = NULL;
+QueueHandle_t g_displayCanUpdateEventQueue = NULL;
 
 /*
  *	Public functions implementations
@@ -27,8 +27,8 @@ bool createEventQueues()
 	}
 
 	// Create the event Queue for updating the displays
-	g_updateDisplayEventQueue = xQueueCreate(2, sizeof(QueueEvent_t));
-	if (g_updateDisplayEventQueue == NULL) {
+	g_displayCanUpdateEventQueue = xQueueCreate(2, sizeof(QueueEvent_t));
+	if (g_displayCanUpdateEventQueue == NULL) {
 		ESP_LOGE("EventQueue", "Couldn't create updateDisplayEventQueue");
 
 		return false;

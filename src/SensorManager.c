@@ -87,7 +87,7 @@ static void sendSensorDataISR(void* p_arg)
 	frame.buffer[7] = sensorsIsRightIndicatorActive();
 
 	// Initiate the frame
-	canInitiateFrame(&frame, CAN_MSG_SENSOR_DATA, g_ownCanComId, 8);
+	canInitiateFrame(&frame, CAN_MSG_SENSOR_DATA, 8);
 
 	// Send the frame
 	// canQueueFrame(&frame);

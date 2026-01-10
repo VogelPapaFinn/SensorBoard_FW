@@ -107,7 +107,7 @@ static void broadcastRegistrationRequestCb(void* p_arg)
 	TwaiFrame_t frame;
 
 	// Initiate the frame
-	canInitiateFrame(&frame, CAN_MSG_REGISTRATION, g_ownCanComId, 0);
+	canInitiateFrame(&frame, CAN_MSG_REGISTRATION, 0);
 
 	// Send the frame
 	canQueueFrame(&frame);
@@ -416,7 +416,7 @@ void displayRestart(const uint8_t comId)
 	frame.buffer[0] = comId;
 
 	// Initiate the frame
-	canInitiateFrame(&frame, CAN_MSG_DISPLAY_RESTART, g_ownCanComId, 1);
+	canInitiateFrame(&frame, CAN_MSG_DISPLAY_RESTART, 1);
 
 	// Send the frame
 	canQueueFrame(&frame);
@@ -508,7 +508,7 @@ uint8_t displayRegisterWithUUID(const uint8_t* p_uuid)
 	frame.buffer[7] = screen; // NOLINT
 
 	// Initiate the frame
-	canInitiateFrame(&frame, CAN_MSG_COMID_ASSIGNATION, g_ownCanComId, 8);
+	canInitiateFrame(&frame, CAN_MSG_COMID_ASSIGNATION, 8);
 
 	// Send the frame
 	canQueueFrame(&frame);

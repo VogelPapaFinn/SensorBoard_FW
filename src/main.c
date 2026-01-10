@@ -2,7 +2,7 @@
 #include "FilesystemDriver.h"
 #include "../include/WebInterface/WebInterface.h"
 #include "DisplayManager.h"
-#include "DisplayUpdate.h"
+#include "../include/UpdateManagers/DisplayCanUpdater.h"
 #include "EventQueues.h"
 #include "SensorManager.h"
 #include "Version.h"
@@ -27,7 +27,7 @@
 /*
  *	Prototypes
  */
-static void handleCanMessage(const QueueEvent_t* p_queueEvent);
+static void handleCanFrame(const QueueEvent_t* p_queueEvent);
 static void enterOperatingMode(const QueueEvent_t* p_queueEvent);
 static void handleCanDriverCrash(const QueueEvent_t* p_queueEvent);
 
@@ -51,7 +51,7 @@ typedef void (*EventHandlerFunction_t)(const QueueEvent_t* p_queueEvent);
 uint8_t g_ownCanComId = 0x00;
 static const EventHandlerFunction_t g_eventHandlers[] = {
 	[CAN_DRIVER_CRASHED] = handleCanDriverCrash,
-	[RECEIVED_NEW_CAN_MESSAGE] = handleCanMessage,
+	[RECEIVED_NEW_CAN_MESSAGE] = handleCanFrame,
 	[REQUEST_UUID] = displayStartRegistrationProcess,
 	[INIT_OPERATION_MODE] = enterOperatingMode,
 };
@@ -125,7 +125,7 @@ void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 	}
 }
 
-void handleCanMessage(const QueueEvent_t* p_queueEvent)
+void handleCanFrame(const QueueEvent_t* p_queueEvent)
 {
 	// Get the frame
 	const twai_frame_t recFrame = p_queueEvent->canFrame;
@@ -154,7 +154,7 @@ void handleCanMessage(const QueueEvent_t* p_queueEvent)
 		frame.buffer[0] = senderComId;
 
 		// Initiate the frame
-		canInitiateFrame(&frame, CAN_MSG_REQUEST_FIRMWARE_VERSION, g_ownCanComId, 1);
+		canInitiateFrame(&frame, CAN_MSG_REQUEST_FIRMWARE_VERSION, 1);
 
 		// Send the frame
 		canQueueFrame(&frame);
@@ -179,7 +179,7 @@ void handleCanMessage(const QueueEvent_t* p_queueEvent)
 		frame.buffer[0] = senderComId;
 
 		// Initiate the frame
-		canInitiateFrame(&frame, CAN_MSG_REQUEST_COMMIT_INFORMATION, g_ownCanComId, 1);
+		canInitiateFrame(&frame, CAN_MSG_REQUEST_COMMIT_INFORMATION, 1);
 
 		// Send the frame
 		canQueueFrame(&frame);
@@ -195,13 +195,13 @@ void handleCanMessage(const QueueEvent_t* p_queueEvent)
 		displaySetCommitInformation(senderComId, p_queueEvent->canFrame.buffer);
 
 		// Check for updates
-		displayUpdateNegotiate(senderComId);
+		displayUpdateCanStart(senderComId);
 		return;
 	}
 
 	if (messageId >= CAN_MSG_INIT_UPDATE_MODE && messageId <= CAN_MSG_EXECUTE_UPDATE) {
 		// Pass it to the display update handler
-		xQueueSend(g_updateDisplayEventQueue, p_queueEvent, pdMS_TO_TICKS(100));
+		xQueueSend(g_displayCanUpdateEventQueue, p_queueEvent, pdMS_TO_TICKS(100));
 
 		return;
 	}
