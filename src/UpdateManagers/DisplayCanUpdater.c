@@ -28,22 +28,22 @@
  *	Private variables
  */
 //! \brief Bool indicating if an update file was found
-static bool g_updateFileAvailable = false;
+static bool g_updateAvailable = false;
 
 //! \brief The update size of the update file in bytes
-static uint32_t g_updateFileSizeB = 0;
+static uint32_t g_fileSizeB = 0;
 
 //! \brief The name of the update file
-static char g_updateFileName[UPDATE_FILE_MAX_NAME_LENGTH] = {'\0'};
+static char g_fileName[UPDATE_FILE_MAX_NAME_LENGTH] = {'\0'};
 
 //! \brief Stream to read from the update file
-static FILE* g_updateFile = NULL;
+static FILE* g_file = NULL;
 
 //! \brief Task handle of the update task
-static TaskHandle_t g_updateTaskHandle;
+static TaskHandle_t g_taskHandle;
 
 //! \brief Amount of total bytes transmitted
-static uint32_t g_totalBytesTransmitted = 0;
+static uint32_t g_bytesTransmitted = 0;
 
 /*
  *	Prototypes
@@ -56,9 +56,9 @@ static void updateTask(void* p_param);
 //! \param p_queueEvent A pointer to the received CAN frame
 static void handleCanFrame(const QueueEvent_t* p_queueEvent);
 
-//! \brief Handles the initialization of the update
+//! \brief Handles the preparations of the update
 //! \param p_queueEvent A pointer to the queue event
-static void initializeUpdate(const QueueEvent_t* p_queueEvent);
+static void prepareUpdate(const QueueEvent_t* p_queueEvent);
 
 //! \brief Handles the transmitting of the update
 //! \param p_queueEvent A pointer to the queue event
@@ -73,7 +73,7 @@ static void executeUpdate(const QueueEvent_t* p_queueEvent);
  */
 static void updateTask(void* p_param)
 {
-	if (!g_updateFileAvailable) {
+	if (!g_updateAvailable) {
 		vTaskDelete(NULL);
 	}
 
@@ -89,7 +89,7 @@ static void updateTask(void* p_param)
 
 			// Initialize update
 			if (queueEvent.command == INITIALIZE_UPDATE) {
-				initializeUpdate(&queueEvent);
+				prepareUpdate(&queueEvent);
 			}
 
 			// Transmit the update file
@@ -125,7 +125,7 @@ static void handleCanFrame(const QueueEvent_t* p_queueEvent)
 	}
 
 	// Acknowledge of Initialization of Update
-	if (messageId == CAN_MSG_INIT_UPDATE_MODE) {
+	if (messageId == CAN_MSG_PREPARE_UPDATE) {
 		// Queue the event
 		QueueEvent_t event;
 		event.command = TRANSMIT_UPDATE;
@@ -135,10 +135,10 @@ static void handleCanFrame(const QueueEvent_t* p_queueEvent)
 		return;
 	}
 
-	// Answer to the last transmitted update file part
+	// Answer to the last transmitted update file block
 	if (messageId == CAN_MSG_TRANSMIT_UPDATE_FILE) {
-		// Was it the last part of the file?
-		if (g_totalBytesTransmitted >= g_updateFileSizeB) {
+		// Was it the last block of the file?
+		if (g_bytesTransmitted >= g_fileSizeB) {
 			// Queue the execution of the update
 			QueueEvent_t event;
 			event.command = EXECUTE_UPDATE;
@@ -149,7 +149,7 @@ static void handleCanFrame(const QueueEvent_t* p_queueEvent)
 			return;
 		}
 
-		// Queue the transmission of the next part
+		// Queue the transmission of the next block
 		QueueEvent_t event;
 		event.command = TRANSMIT_UPDATE;
 		event.parameter = p_queueEvent->parameter;
@@ -165,7 +165,7 @@ static void handleCanFrame(const QueueEvent_t* p_queueEvent)
 		canUnregisterRxCbQueue(&g_displayCanUpdateEventQueue);
 
 		// Stop the update task
-		vTaskDelete(g_updateTaskHandle);
+		vTaskDelete(g_taskHandle);
 
 		// Queue the restart of the display
 		QueueEvent_t event;
@@ -178,7 +178,7 @@ static void handleCanFrame(const QueueEvent_t* p_queueEvent)
 	}
 }
 
-static void initializeUpdate(const QueueEvent_t* p_queueEvent)
+static void prepareUpdate(const QueueEvent_t* p_queueEvent)
 {
 	/*
 	 * Tell the display to brace itself for the update
@@ -190,13 +190,13 @@ static void initializeUpdate(const QueueEvent_t* p_queueEvent)
 	frame.buffer[0] = *(uint8_t*)p_queueEvent->parameter;
 
 	// Set the update file size
-	frame.buffer[1] = g_updateFileSizeB >> 24;
-	frame.buffer[2] = g_updateFileSizeB >> 16;
-	frame.buffer[3] = g_updateFileSizeB >> 8;
-	frame.buffer[4] = g_updateFileSizeB;
+	frame.buffer[1] = g_fileSizeB >> 24;
+	frame.buffer[2] = g_fileSizeB >> 16;
+	frame.buffer[3] = g_fileSizeB >> 8;
+	frame.buffer[4] = g_fileSizeB;
 
 	// Initiate the frame
-	canInitiateFrame(&frame, CAN_MSG_INIT_UPDATE_MODE, 5);
+	canInitiateFrame(&frame, CAN_MSG_PREPARE_UPDATE, 5);
 
 	// Send the frame
 	canQueueFrame(&frame);
@@ -204,7 +204,7 @@ static void initializeUpdate(const QueueEvent_t* p_queueEvent)
 
 static void transmitUpdate(const QueueEvent_t* p_queueEvent)
 {
-	if (g_updateFile == NULL) {
+	if (g_file == NULL) {
 		return;
 	}
 
@@ -212,23 +212,23 @@ static void transmitUpdate(const QueueEvent_t* p_queueEvent)
 	TwaiFrame_t frame;
 
 	// Logging
-	if (g_totalBytesTransmitted % UPDATE_BLOCK_SIZE_B * 1000 == 0) {
-		ESP_LOGI("DisplayUpdate", "Transmitted %d bytes of total %d bytes", g_totalBytesTransmitted, g_updateFileSizeB);
+	if (g_bytesTransmitted % UPDATE_BLOCK_SIZE_B * 1000 == 0) {
+		ESP_LOGI("DisplayCanUpdater", "Transmitted %d bytes of total %d bytes", g_bytesTransmitted, g_fileSizeB);
 	}
 
 	// Read the bytes
 	uint8_t amountReadBytes = 0;
-	if (g_totalBytesTransmitted + UPDATE_BLOCK_SIZE_B <= g_updateFileSizeB) {
-		amountReadBytes = fread(&frame.buffer[1], sizeof(uint8_t), UPDATE_BLOCK_SIZE_B, g_updateFile);
+	if (g_bytesTransmitted + UPDATE_BLOCK_SIZE_B <= g_fileSizeB) {
+		amountReadBytes = fread(&frame.buffer[1], sizeof(uint8_t), UPDATE_BLOCK_SIZE_B, g_file);
 	}
 	else {
 		// Logging
-		ESP_LOGI("DisplayUpdate", "Transmitting last %d bytes", g_updateFileSizeB - g_totalBytesTransmitted);
+		ESP_LOGI("DisplayCanUpdater", "Transmitting last %d bytes", g_fileSizeB - g_bytesTransmitted);
 
-		amountReadBytes = fread(&frame.buffer[1], sizeof(uint8_t), g_updateFileSizeB - g_totalBytesTransmitted,
-		                                g_updateFile);
+		amountReadBytes = fread(&frame.buffer[1], sizeof(uint8_t), g_fileSizeB - g_bytesTransmitted,
+		                                g_file);
 	}
-	g_totalBytesTransmitted += amountReadBytes;
+	g_bytesTransmitted += amountReadBytes;
 
 	// Set the comid
 	frame.buffer[0] = *(uint8_t*)p_queueEvent->parameter;
@@ -243,7 +243,7 @@ static void transmitUpdate(const QueueEvent_t* p_queueEvent)
 static void executeUpdate(const QueueEvent_t* p_queueEvent)
 {
 	// Logging
-	ESP_LOGI("DisplayUpdate", "Transmitting completed. Executing update which may take a while");
+	ESP_LOGI("DisplayCanUpdater", "Transmitting completed. Executing update which may take a while");
 
 	// Create the CAN answer frame
 	TwaiFrame_t frame;
@@ -260,28 +260,28 @@ static void executeUpdate(const QueueEvent_t* p_queueEvent)
 
 static void loadUpdateFileSize()
 {
-	if (!g_updateFileAvailable) {
+	if (!g_updateAvailable) {
 		return;
 	}
 
 	// Try to open the file as binary
-	g_updateFile = filesystemOpenFile(g_updateFileName, "rb", SD_CARD);
-	if (g_updateFile == NULL) {
+	g_file = filesystemOpenFile(g_fileName, "rb", SD_CARD);
+	if (g_file == NULL) {
 		return;
 	}
 
 	// Jump to the end
-	fseek(g_updateFile, 0, SEEK_END);
-	g_updateFileSizeB = ftell(g_updateFile);
+	fseek(g_file, 0, SEEK_END);
+	g_fileSizeB = ftell(g_file);
 
 	// Calculate the amount of blocks we need to transmit
-	uint32_t updateFileBlocks = g_updateFileSizeB % UPDATE_BLOCK_SIZE_B > 0 ? 1 : 0;
-	updateFileBlocks += g_updateFileSizeB / UPDATE_BLOCK_SIZE_B;
+	uint32_t updateFileBlocks = g_fileSizeB % UPDATE_BLOCK_SIZE_B > 0 ? 1 : 0;
+	updateFileBlocks += g_fileSizeB / UPDATE_BLOCK_SIZE_B;
 
 	// Jump back to the top of the file
-	fseek(g_updateFile, 0, SEEK_SET);
+	fseek(g_file, 0, SEEK_SET);
 
-	ESP_LOGI("DisplayUpdate", "Update file size: %d, corresponds to %d blocks", g_updateFileSizeB, updateFileBlocks);
+	ESP_LOGI("DisplayCanUpdater", "Update file size: %d, corresponds to %d blocks", g_fileSizeB, updateFileBlocks);
 }
 
 /*
@@ -306,7 +306,7 @@ bool displayUpdateCanIsUpdateAvailable()
 	int major, minor, patch;
 	char suffix[256];
 	for (uint16_t i = 0; i < amountOfFiles; i++) {
-		if (g_updateFileAvailable) {
+		if (g_updateAvailable) {
 			free(*(files + i));
 			continue;
 		}
@@ -331,26 +331,26 @@ bool displayUpdateCanIsUpdateAvailable()
 		}
 
 		// Update file found, save it
-		snprintf(g_updateFileName, strlen(UPDATE_SDCARD_FOLDER) + strlen("/") + strlen(file->d_name), "%s/%s",
+		snprintf(g_fileName, strlen(UPDATE_SDCARD_FOLDER) + strlen("/") + strlen(file->d_name), "%s/%s",
 		         UPDATE_SDCARD_FOLDER, file->d_name);
-		g_updateFileAvailable = true;
+		g_updateAvailable = true;
 	}
 
-	return g_updateFileAvailable;
+	return g_updateAvailable;
 }
 
 bool displayUpdateCanStart(const uint8_t comId)
 {
-	if (comId == 0 || !g_updateFileAvailable) {
+	if (comId == 0 || !g_updateAvailable) {
 		return false;
 	}
 
 	// Get the update file size
-	if (g_updateFileSizeB == 0) {
+	if (g_fileSizeB == 0) {
 		loadUpdateFileSize();
 	}
-	if (g_updateFileSizeB == 0) {
-		ESP_LOGE("DisplayUpdate", "Update file size was 0.");
+	if (g_fileSizeB == 0) {
+		ESP_LOGE("DisplayCanUpdater", "Update file size was 0.");
 
 		return false;
 	}
@@ -362,8 +362,8 @@ bool displayUpdateCanStart(const uint8_t comId)
 	canRegisterRxCbQueue(&g_displayCanUpdateEventQueue);
 
 	// Start the update task
-	if (xTaskCreate(updateTask, "displayUpdateTask", 2048 * 4, NULL, 2, &g_updateTaskHandle) != pdPASS) {
-		ESP_LOGE("DisplayUpdate", "Couldn't create update task!");
+	if (xTaskCreate(updateTask, "displayUpdateTask", 2048 * 4, NULL, 2, &g_taskHandle) != pdPASS) {
+		ESP_LOGE("DisplayCanUpdater", "Couldn't create update task!");
 
 		return false;
 	}
