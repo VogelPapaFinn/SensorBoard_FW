@@ -83,7 +83,7 @@ static void updateTask(void* p_param)
 		// Wait until we get a new event in the queue
 		if (xQueueReceive(g_displayCanUpdateEventQueue, &queueEvent, pdMS_TO_TICKS(250))) {
 			// New CAN message
-			if (queueEvent.command == RECEIVED_NEW_CAN_MESSAGE) {
+			if (queueEvent.command == RECEIVED_NEW_CAN_FRAME) {
 				handleCanFrame(&queueEvent);
 			}
 

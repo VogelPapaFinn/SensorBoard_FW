@@ -1,8 +1,8 @@
 // Project includes
 #include "FilesystemDriver.h"
+#include "../include/UpdateManagers/DisplayCanUpdater.h"
 #include "../include/WebInterface/WebInterface.h"
 #include "DisplayManager.h"
-#include "../include/UpdateManagers/DisplayCanUpdater.h"
 #include "EventQueues.h"
 #include "SensorManager.h"
 #include "Version.h"
@@ -10,13 +10,11 @@
 #include "can_messages.h"
 
 // espidf includes
-#include <esp_mac.h>
-#include <esp_timer.h>
-#include <sys/dirent.h>
-#include <sys/stat.h>
 #include "driver/gpio.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
+#include <sys/dirent.h>
+#include <sys/stat.h>
 
 /*
  *	Defines
@@ -27,35 +25,20 @@
 /*
  *	Prototypes
  */
+//! \brief Handles received CAN frame
+//! \param p_queueEvent A pointer to the CAN frame
 static void handleCanFrame(const QueueEvent_t* p_queueEvent);
-static void enterOperatingMode(const QueueEvent_t* p_queueEvent);
-static void handleCanDriverCrash(const QueueEvent_t* p_queueEvent);
 
-void debugListAllSpiffsFiles();
+//! \brief Enters the operating mode
+static void enterOperatingMode();
 
-/*
- *	Private typedefs
- */
-//! \brief A typedef enum indicating the state we are in
-typedef enum
-{
-	STATE_INIT,
-	STATE_OPERATING,
-} State_t;
-
-typedef void (*EventHandlerFunction_t)(const QueueEvent_t* p_queueEvent);
+//! \brief Handles a CAN driver crash
+static void handleCanDriverCrash();
 
 /*
  *	Private Variables
  */
 uint8_t g_ownCanComId = 0x00;
-static const EventHandlerFunction_t g_eventHandlers[] = {
-	[CAN_DRIVER_CRASHED] = handleCanDriverCrash,
-	[RECEIVED_NEW_CAN_MESSAGE] = handleCanFrame,
-	[REQUEST_UUID] = displayStartRegistrationProcess,
-	[INIT_OPERATION_MODE] = enterOperatingMode,
-};
-const uint8_t g_amountOfEventHandlers = sizeof(g_eventHandlers) / sizeof(EventHandlerFunction_t);
 
 static bool g_operationModeInitialized = false;
 
@@ -100,12 +83,12 @@ void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 	canInitializeNode(GPIO_NUM_43, GPIO_NUM_2);
 	canEnableNode();
 
-	// Register the queue to the CAN bus
+	// Register the main queue to the CAN bus
 	canRegisterRxCbQueue(&g_mainEventQueue);
 
 	// Send a UUID Request
 	QueueEvent_t initRequest;
-	initRequest.command = REQUEST_UUID;
+	initRequest.command = START_REGISTRATION_PROCESS;
 	xQueueSend(g_mainEventQueue, &initRequest, portMAX_DELAY);
 
 	// Wait for new queue events
@@ -113,13 +96,32 @@ void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 	while (true) {
 		// Wait until we get a new event in the queue
 		if (xQueueReceive(g_mainEventQueue, &queueEvent, portMAX_DELAY)) {
-			// Act depending on the event
-			if (queueEvent.command < g_amountOfEventHandlers && g_eventHandlers[queueEvent.command] != NULL) {
-				// Aufruf des Handlers
-				g_eventHandlers[queueEvent.command](&queueEvent);
+			// The CAN driver crashed
+			if (queueEvent.command == CAN_DRIVER_CRASHED) {
+				handleCanDriverCrash();
+
+				continue;
 			}
-			else {
-				ESP_LOGW("main", "Skipped unknown queue event '%d' in the main queue", queueEvent.command);
+
+			// We received a new CAN frame
+			if (queueEvent.command == RECEIVED_NEW_CAN_FRAME) {
+				handleCanFrame(&queueEvent);
+
+				continue;
+			}
+
+			// Starting the CAN registration process
+			if (queueEvent.command == START_REGISTRATION_PROCESS) {
+				displayStartRegistrationProcess();
+
+				continue;
+			}
+
+			// Enter the operation mode
+			if (queueEvent.command == INIT_OPERATION_MODE) {
+				enterOperatingMode();
+
+				continue;
 			}
 		}
 	}
@@ -127,26 +129,23 @@ void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 
 void handleCanFrame(const QueueEvent_t* p_queueEvent)
 {
-	// Get the frame
-	const twai_frame_t recFrame = p_queueEvent->canFrame;
+	// Get the CAN frame
+	const twai_frame_t rxFrame = p_queueEvent->canFrame;
 
 	// Get the message id
-	const uint8_t messageId = recFrame.header.id >> CAN_MESSAGE_ID_OFFSET;
+	const uint8_t messageId = rxFrame.header.id >> CAN_MESSAGE_ID_OFFSET;
 
 	// Get the sender com id
-	uint8_t senderComId = recFrame.header.id & 0x1FFFFF; // Zero top 8 bits
-
-	// ESP_LOGI("main", "Received new can message %d from sender %d", messageId, senderComId);
+	uint8_t senderComId = rxFrame.header.id & 0x1FFFFF; // Zero top 8 bits
 
 	// Registration process
-	if (messageId == CAN_MSG_REGISTRATION && recFrame.buffer_len >= 6) {
-		// Send it to the Display Manager
+	if (messageId == CAN_MSG_REGISTRATION && rxFrame.buffer_len >= 6) {
+		// Pass it to the Display Manager
 		senderComId = displayRegisterWithUUID(p_queueEvent->canFrame.buffer);
 
 		/*
 		 *	Request the firmware version
 		 */
-
 		// Create the CAN answer frame
 		TwaiFrame_t frame;
 
@@ -163,7 +162,7 @@ void handleCanFrame(const QueueEvent_t* p_queueEvent)
 	}
 
 	// Answer to the firmware version request
-	if (messageId == CAN_MSG_REQUEST_FIRMWARE_VERSION && recFrame.buffer_len >= 4) {
+	if (messageId == CAN_MSG_REQUEST_FIRMWARE_VERSION && rxFrame.buffer_len >= 4) {
 		/*
 		 *	Pass it to the Display Manager
 		 */
@@ -188,48 +187,42 @@ void handleCanFrame(const QueueEvent_t* p_queueEvent)
 	}
 
 	// Answer to the commit information request
-	if (messageId == CAN_MSG_REQUEST_COMMIT_INFORMATION && recFrame.buffer_len >= 4) {
+	if (messageId == CAN_MSG_REQUEST_COMMIT_INFORMATION && rxFrame.buffer_len >= 4) {
 		/*
 		 *	Pass it to the Display Manager
 		 */
 		displaySetCommitInformation(senderComId, p_queueEvent->canFrame.buffer);
-
-		// Check for updates
-		displayUpdateCanStart(senderComId);
-		return;
-	}
-
-	if (messageId >= CAN_MSG_INIT_UPDATE_MODE && messageId <= CAN_MSG_EXECUTE_UPDATE) {
-		// Pass it to the display update handler
-		xQueueSend(g_displayCanUpdateEventQueue, p_queueEvent, pdMS_TO_TICKS(100));
-
 		return;
 	}
 }
 
-void enterOperatingMode(const QueueEvent_t* p_queueEvent)
+void enterOperatingMode()
 {
 	// Are we not yet initialized?
-	if (g_operationModeInitialized == false) {
-		// Start the Webinterface
-		// startWebInterface(GET_FROM_CONFIG);
-
-		// Start the reading of all sensors
-		sensorsStartReadingAllSensors();
-
-		// Start sending the sensor data via can
-		sensorsStartSendingSensorData();
-
-		// Finished the initialization
-		g_operationModeInitialized = true;
+	if (g_operationModeInitialized) {
+		return;
 	}
+
+	// Start the Webinterface
+	// startWebInterface(GET_FROM_CONFIG);
+
+	// Start the reading of all sensors
+	sensorsStartReadingAllSensors();
+
+	// Start sending the sensor data via CAN
+	sensorsStartSendingSensorData();
+
+	// Initialization completed
+	g_operationModeInitialized = true;
 }
 
-void handleCanDriverCrash(const QueueEvent_t* p_queueEvent)
+void handleCanDriverCrash()
 {
 	if (canRecoverDriver() == ESP_OK) {
 		ESP_LOGI("main", "Recovered CAN driver");
-	} else {
-		ESP_LOGE("main", "Couldn't recover CAN driver");
+
+		return;
 	}
+
+	ESP_LOGE("main", "Couldn't recover CAN driver");
 }
