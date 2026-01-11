@@ -30,7 +30,7 @@ static uint8_t g_fuelLevel = false;
 /*
  *	Private functions
  */
-uint8_t calculateFuelLevelFromResistance(const double r)
+uint8_t calculateFuel(const double r)
 {
 
 	// Check if the resistance is too low
@@ -49,7 +49,7 @@ uint8_t calculateFuelLevelFromResistance(const double r)
 /*
  *	Public function implementations
  */
-bool sensorsInitFuelLevelSensor(const adc_oneshot_unit_handle_t* p_adcHandle,
+bool sensorFuelLevelInit(const adc_oneshot_unit_handle_t* p_adcHandle,
                                 const adc_oneshot_chan_cfg_t* p_adcChannelConfig)
 {
 	// Save the adc handle
@@ -72,7 +72,7 @@ bool sensorsInitFuelLevelSensor(const adc_oneshot_unit_handle_t* p_adcHandle,
 	return true;
 }
 
-void sensorsReadFuelLevel()
+void sensorFuelLevelRead()
 {
 	// Temporary containers
 	int rawAdcValue = 0;
@@ -98,10 +98,10 @@ void sensorsReadFuelLevel()
 	const double resistance = sensorUtilsCalculateVoltageDividerR2(voltage, FUEL_LEVEL_R1);
 
 	// Calculate the fuel level from the calculated resistance
-	g_fuelLevel = calculateFuelLevelFromResistance(resistance);
+	g_fuelLevel = calculateFuel(resistance);
 }
 
-uint8_t sensorsGetFuelLevel()
+uint8_t sensorFuelLevelGet()
 {
 	return g_fuelLevel;
 }

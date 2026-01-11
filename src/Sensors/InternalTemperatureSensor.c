@@ -28,7 +28,7 @@ static double g_internalTemperature = 0.0;
 /*
  *	Public function implementations
  */
-bool sensorsInitInternalTemperatureSensor(const adc_oneshot_unit_handle_t* p_adcHandle,
+bool sensorInternalTemperatureInit(const adc_oneshot_unit_handle_t* p_adcHandle,
                                           const adc_oneshot_chan_cfg_t* p_adcChannelConfig)
 {
 	// Save the adc handle
@@ -66,7 +66,7 @@ bool sensorsInitInternalTemperatureSensor(const adc_oneshot_unit_handle_t* p_adc
 	return true;
 }
 
-void sensorsReadInternalTemperature()
+void sensorInternalTemperatureRead()
 {
 	// Temporary containers
 	int rawAdcValue = 0;
@@ -97,11 +97,11 @@ void sensorsReadInternalTemperature()
 	g_internalTemperature = ((double)voltage - 500.0) / 10.0;
 
 	// Get converted sensor data
-	// loat tsens_out;
-	// emperature_sensor_get_celsius(temp_handle, &tsens_out);
+	// float tsens_out;
+	// temperature_sensor_get_celsius(temp_handle, &tsens_out);
 }
 
-double sensorsGetInternalTemperature()
+double sensorInternalTemperatureGet()
 {
 	return g_internalTemperature;
 }

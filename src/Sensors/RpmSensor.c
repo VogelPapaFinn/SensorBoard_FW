@@ -15,7 +15,6 @@
  *	Private defines
  */
 #define RPM_GPIO GPIO_NUM_21
-
 #define MAX_RPM 8000
 
 /*
@@ -36,7 +35,7 @@ static void rpmISR()
 /*
  *	Private functions
  */
-static uint16_t calculateRpmFromFrequency(const double rpmInHz)
+static uint16_t calculateRpm(const double rpmInHz)
 {
 	double multiplier = 30.0;
 
@@ -73,7 +72,7 @@ static uint16_t calculateRpmFromFrequency(const double rpmInHz)
 /*
  *	Public function implementations
  */
-bool sensorsInitRpmSensor()
+bool sensorRpmInit()
 {
 	// Setup GPIO
 	gpio_set_direction(RPM_GPIO, GPIO_MODE_INPUT);
@@ -90,7 +89,7 @@ bool sensorsInitRpmSensor()
 	return true;
 }
 
-void sensorsActivateRpmISR()
+void sensorRpmActivateISR()
 {
 	// Activate the ISR
 	if (gpio_isr_handler_add(RPM_GPIO, rpmISR, NULL) != ESP_OK) {
@@ -98,7 +97,7 @@ void sensorsActivateRpmISR()
 	}
 }
 
-void sensorsDeactivateRpmISR()
+void sensorRpmDeactivateISR()
 {
 	// Deactivate the ISR
 	if (gpio_isr_handler_remove(RPM_GPIO) != ESP_OK) {
@@ -106,7 +105,7 @@ void sensorsDeactivateRpmISR()
 	}
 }
 
-uint16_t sensorsGetRpm()
+uint16_t sensorRpmGet()
 {
 	// Calculate how much time between the two falling edges was
 	int64_t time = 0;
@@ -122,7 +121,7 @@ uint16_t sensorsGetRpm()
 	const double rpmInHz = round(1.0 / seconds);
 
 	// Calculate the RPM
-	uint16_t rpm = calculateRpmFromFrequency(rpmInHz);
+	uint16_t rpm = calculateRpm(rpmInHz);
 	if (rpm >= MAX_RPM) {
 		rpm = 0;
 	}

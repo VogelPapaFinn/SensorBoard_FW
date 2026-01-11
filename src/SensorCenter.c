@@ -20,8 +20,10 @@
  */
 //! \brief Boolean indicating if the initialization of the ADC2 was successful
 static bool g_adc2Initialized = false;
+
 //! \brief The handle of the ADC2
 static adc_oneshot_unit_handle_t g_adc2Handle;
+
 //! \brief The configuration which is used for all ADC1 and ADC2 channels
 static adc_oneshot_chan_cfg_t g_adcChannelConfig = {
 	.bitwidth = ADC_BITWIDTH_DEFAULT,
@@ -30,6 +32,7 @@ static adc_oneshot_chan_cfg_t g_adcChannelConfig = {
 
 //! \brief Boolean indicating if the initialization of the ADC1 was successful
 static bool g_adc1Initialized = false;
+
 //! \brief The handle of the ADC1
 static adc_oneshot_unit_handle_t g_adc1Handle;
 
@@ -40,7 +43,7 @@ static bool g_isrServiceInstalled = false;
 /*
  *	Public function implementations
 */
-void sensorManagerInit()
+void sensorCenterInit()
 {
 	// Initialize the ADC1
 	const adc_oneshot_unit_init_cfg_t adc1InitConfig = {
@@ -82,42 +85,42 @@ void sensorManagerInit()
 	}
 
 	// Init the manual sensors
-	sensorsInitOilPressureSensor(&g_adc2Handle, &g_adcChannelConfig);
-	sensorsInitFuelLevelSensor(&g_adc2Handle, &g_adcChannelConfig);
-	sensorsInitWaterTemperatureSensor(&g_adc2Handle, &g_adcChannelConfig);
-	sensorsInitInternalTemperatureSensor(&g_adc1Handle, &g_adcChannelConfig);
-	sensorsInitIndicatorsSensor();
+	sensorOilPressureInit(&g_adc2Handle, &g_adcChannelConfig);
+	sensorFuelLevelInit(&g_adc2Handle, &g_adcChannelConfig);
+	sensorWaterTemperatureInit(&g_adc2Handle, &g_adcChannelConfig);
+	sensorInternalTemperatureInit(&g_adc1Handle, &g_adcChannelConfig);
+	sensorIndicatorsInit();
 
 	// Init the automatic sensors
-	sensorsInitSpeedSensor();
-	sensorsInitRpmSensor();
+	sensorSpeedInit();
+	sensorRpmInit();
 }
 
 void sensorsActivateISRs()
 {
-	sensorsActivateSpeedISR();
-	sensorsActivateRpmISR();
+	sensorSpeedActivateISR();
+	sensorRpmActivateISR();
 }
 
 void sensorsDeactivateISRs()
 {
-	sensorsDeactivateSpeedISR();
-	sensorsDeactivateRpmISR();
+	sensorSpeedDeactivateISR();
+	sensorRpmDeactivateISR();
 }
 
 void sensorsReadAll()
 {
 	// Read the fuel level
-	sensorsReadFuelLevel();
+	sensorFuelLevelRead();
 
 	// Read the water temperature
-	sensorsReadWaterTemperature();
+	sensorWaterTemperatureRead();
 
 	// Read the oil pressure
-	sensorsReadOilPressure();
+	sensorOilPressureRead();
 
 	// Read the internal temperature
-	sensorsReadInternalTemperature();
+	sensorInternalTemperatureRead();
 }
 
 void sensorsSendAll()
@@ -126,15 +129,15 @@ void sensorsSendAll()
 	TwaiFrame_t frame;
 
 	// Set the buffer content
-	frame.buffer[0] = sensorsGetSpeed();
-	const uint16_t rpm = sensorsGetRpm();
+	frame.buffer[0] = sensorSpeedGet();
+	const uint16_t rpm = sensorRpmGet();
 	frame.buffer[1] = rpm >> 8;
 	frame.buffer[2] = (uint8_t)rpm;
-	frame.buffer[3] = sensorsGetFuelLevel();
-	frame.buffer[4] = sensorsGetWaterTemperature();
-	frame.buffer[5] = sensorsIsOilPressurePresent();
-	frame.buffer[6] = sensorsIsLeftIndicatorActive();
-	frame.buffer[7] = sensorsIsRightIndicatorActive();
+	frame.buffer[3] = sensorFuelLevelGet();
+	frame.buffer[4] = sensorWaterTemperatureGet();
+	frame.buffer[5] = sensorOilPresserPresent();
+	frame.buffer[6] = sensorIndicatorsLeftActive();
+	frame.buffer[7] = sensorIndicatorsRightActive();
 
 	// Initiate the frame
 	canInitiateFrame(&frame, CAN_MSG_SENSOR_DATA, 8);

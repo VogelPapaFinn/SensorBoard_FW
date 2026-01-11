@@ -3,15 +3,11 @@
 // C includes
 #include <stdbool.h>
 
-// FreeRTOS includes
-#include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
-
 /*
  *	Public functions
  */
-bool sensorsInitIndicatorsSensor();
+bool sensorIndicatorsInit();
 
-bool sensorsIsLeftIndicatorActive();
+bool sensorIndicatorsLeftActive();
 
-bool sensorsIsRightIndicatorActive();
+bool sensorIndicatorsRightActive();

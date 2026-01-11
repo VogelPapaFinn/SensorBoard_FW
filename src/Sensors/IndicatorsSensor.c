@@ -1,11 +1,7 @@
 #include "Sensors/IndicatorsSensor.h"
 
-// Project includes
-#include "EventQueues.h"
-
 // espidf includes
 #include "driver/gpio.h"
-#include "esp_log.h"
 
 /*
  *	Private defines
@@ -16,7 +12,7 @@
 /*
  *	Public function implementations
  */
-bool sensorsInitIndicatorsSensor()
+bool sensorIndicatorsInit()
 {
 	// Setup GPIO for the left indicator
 	gpio_set_direction(LEFT_INDICATOR_GPIO, GPIO_MODE_INPUT);
@@ -29,12 +25,12 @@ bool sensorsInitIndicatorsSensor()
 	return true;
 }
 
-bool sensorsIsLeftIndicatorActive()
+bool sensorIndicatorsLeftActive()
 {
 	return gpio_get_level(LEFT_INDICATOR_GPIO);
 }
 
-bool sensorsIsRightIndicatorActive()
+bool sensorIndicatorsRightActive()
 {
 	return gpio_get_level(RIGHT_INDICATOR_GPIO);
 }

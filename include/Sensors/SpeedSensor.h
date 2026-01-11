@@ -2,18 +2,15 @@
 
 // C includes
 #include <stdbool.h>
-
-// FreeRTOS includes
-#include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
+#include <stdint.h>
 
 /*
  *	Public functions
  */
-bool sensorsInitSpeedSensor();
+bool sensorSpeedInit();
 
-void sensorsActivateSpeedISR();
+void sensorSpeedActivateISR();
 
-void sensorsDeactivateSpeedISR();
+void sensorSpeedDeactivateISR();
 
-uint8_t sensorsGetSpeed();
+uint8_t sensorSpeedGet();

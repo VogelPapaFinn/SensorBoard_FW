@@ -7,6 +7,7 @@
 /*
  *	Public functions
  */
+//! \brief Initializes the CAN update manager
 void canUpdateManagerInit();
 
 //! \brief Checks the updates folder on the SD Card for an update file

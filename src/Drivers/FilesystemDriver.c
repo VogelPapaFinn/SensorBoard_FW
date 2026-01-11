@@ -1,4 +1,4 @@
-#include "FilesystemDriver.h"
+#include "../../include/Drivers/FilesystemDriver.h"
 
 // C includes
 #include <string.h>
@@ -79,7 +79,7 @@ static char* buildFullPath(const char* p_path, const int location)
 		snprintf(fullPath, length, "%s%s", partition, p_path);
 		return fullPath;
 	}
-	else if (location == DATA_PARTITION) {
+	if (location == DATA_PARTITION) {
 		// Is the data partition mounted?
 		if (!g_isDataPartitionMounted) {
 			// Logging
@@ -99,7 +99,7 @@ static char* buildFullPath(const char* p_path, const int location)
 		snprintf(fullPath, length, "%s%s", partition, p_path);
 		return fullPath;
 	}
-	else if (location == SD_CARD) {
+	if (location == SD_CARD) {
 		// Is the SD Card mounted?
 		if (!g_isSdCardMounted) {
 			// Logging

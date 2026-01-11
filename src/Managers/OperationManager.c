@@ -1,7 +1,7 @@
 #include "Managers/OperationManager.h"
 
 // Project includes
-#include "DisplayCenter.h"
+#include "Display.h"
 #include "Managers/CanUpdateManager.h"
 #include "Managers/RegistrationManager.h"
 #include "SensorCenter.h"
@@ -23,9 +23,21 @@
 /*
  *	Prototypes
 */
-static void readSensorDataISR(void* p_arg);
+//! \brief Task used to receive and handle CAN frames
+//! \param p_param Unused parameters
+static void canTask(void* p_param);
 
-static void sendSensorDataISR(void* p_arg);
+//! \brief Task used to receive and handle events
+//! \param p_param Unused parameters
+static void eventTask(void* p_param);
+
+//! \brief Cb triggered by a timer, to read all sensors
+//! \param p_arg Unused parameter
+static void readSensorDataCb(void* p_arg);
+
+//! \brief Cb triggered by a timer, to broadcast all sensor data via CAN
+//! \param p_arg Unused parameter
+static void sendSensorDataCb(void* p_arg);
 
 /*
  *	Private variables
@@ -40,22 +52,20 @@ static TaskHandle_t g_eventTaskHandle;
 static esp_timer_handle_t g_readSensorDataTimerHandle;
 
 //! \brief The configuration of the timer which is used to periodically read all available sensors
-static const esp_timer_create_args_t g_readSensorDataTimerConf = {.callback = &readSensorDataISR,
+static const esp_timer_create_args_t g_readSensorDataTimerConf = {.callback = &readSensorDataCb,
                                                                   .name = "Read Sensor Data Timer"};
 
 //! \brief Handle of timer which is used to periodically send all available sensor data via CAN
 static esp_timer_handle_t g_sendSensorDataTimerHandle;
 
 //! \brief The configuration of the timer which is used to periodically send all available sensor data via CAN
-static const esp_timer_create_args_t g_sendSensorDataTimerConf = {.callback = &sendSensorDataISR,
+static const esp_timer_create_args_t g_sendSensorDataTimerConf = {.callback = &sendSensorDataCb,
                                                                   .name = "Send Sensor Data Timer"};
 
 
 /*
  *	Tasks & ISRs
  */
-//! \brief Task used to receive and handle CAN frames
-//! \param p_param Unused parameters
 static void canTask(void* p_param)
 {
 	// Wait for new queue events
@@ -79,7 +89,7 @@ static void canTask(void* p_param)
 		 *	Com id specific frames
 		 */
 		// Skip if we were not meant
-		if (rxFrame.header.dlc == 0 || (rxFrame.header.dlc > 0 && *rxFrame.buffer != g_ownCanComId)) {
+		if (rxFrame.header.dlc == 0 || *rxFrame.buffer != g_ownCanComId) {
 			continue;
 		}
 
@@ -105,7 +115,7 @@ static void canTask(void* p_param)
 			// Send the frame
 			canQueueFrame(&frame);
 
-			return;
+			continue;
 		}
 
 		// Answer to the commit information request
@@ -114,14 +124,12 @@ static void canTask(void* p_param)
 			 *	Pass it to the Display Manager
 			 */
 			displaySetCommitInformation(senderId, rxFrame.buffer);
-			return;
+			continue;
 		}
 
 	}
 }
 
-//! \brief Task used to receive and handle events
-//! \param p_param Unused parameters
 static void eventTask(void* p_param)
 {
 	// Wait for new queue events
@@ -146,14 +154,14 @@ static void eventTask(void* p_param)
 	}
 }
 
-static void readSensorDataISR(void* p_arg)
+static void readSensorDataCb(void* p_arg)
 {
 	QueueEvent_t event;
 	event.command = READ_SENSOR_DATA;
 	xQueueSend(g_operationManagerEventQueue, &event, portMAX_DELAY);
 }
 
-static void sendSensorDataISR(void* p_arg)
+static void sendSensorDataCb(void* p_arg)
 {
 	QueueEvent_t event;
 	event.command = SEND_SENSOR_DATA;

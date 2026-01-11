@@ -10,10 +10,10 @@
 /*
  *	Public functions
  */
-bool sensorsInitRpmSensor();
+bool sensorRpmInit();
 
-void sensorsActivateRpmISR();
+void sensorRpmActivateISR();
 
-void sensorsDeactivateRpmISR();
+void sensorRpmDeactivateISR();
 
-uint16_t sensorsGetRpm();
+uint16_t sensorRpmGet();

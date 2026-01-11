@@ -1,7 +1,7 @@
-#include "../../include/Managers/CanUpdateManager.h"
+#include "Managers/CanUpdateManager.h"
 
 // Project includes
-#include "FilesystemDriver.h"
+#include "Drivers/FilesystemDriver.h"
 #include "can.h"
 
 // C includes
@@ -23,6 +23,32 @@
 #define UPDATE_SDCARD_FOLDER "updates"
 #define UPDATE_FILE_NAME_PATTERN "Update_Display_%d.%d.%d-%255s" // e.g. "Update_2.0.1-bfe634f"
 #define UPDATE_FILE_MAX_NAME_LENGTH 256
+
+/*
+ *	Prototypes
+*/
+//! \brief FreeRTOS task which handles all CAN frames
+//! \param p_param Unused parameters
+static void canTask(void* p_param);
+
+//! \brief FreeRTOS task which handles all events in the event queue
+//! \param p_param Unused parameters
+static void eventTask(void* p_param);
+
+//! \brief Handles the preparations of the update
+//! \param p_queueEvent A pointer to the queue event
+static void prepareUpdate(const QueueEvent_t* p_queueEvent);
+
+//! \brief Handles the transmitting of the update
+//! \param p_queueEvent A pointer to the queue event
+static void transmitUpdate(const QueueEvent_t* p_queueEvent);
+
+//! \brief Handles the execution of the update
+//! \param p_queueEvent A pointer to the queue event
+static void executeUpdate(const QueueEvent_t* p_queueEvent);
+
+//! \brief Loads the size of the update file
+static void loadUpdateFileSize();
 
 /*
  *	Private variables
@@ -47,25 +73,6 @@ static TaskHandle_t g_eventTaskHandle;
 
 //! \brief Amount of total bytes transmitted
 static uint32_t g_bytesTransmitted = 0;
-
-/*
- *	Prototypes
- */
-//! \brief FreeRTOS task which handles all events in the event queue
-//! \param p_param Unused parameters
-static void eventTask(void* p_param);
-
-//! \brief Handles the preparations of the update
-//! \param p_queueEvent A pointer to the queue event
-static void prepareUpdate(const QueueEvent_t* p_queueEvent);
-
-//! \brief Handles the transmitting of the update
-//! \param p_queueEvent A pointer to the queue event
-static void transmitUpdate(const QueueEvent_t* p_queueEvent);
-
-//! \brief Handles the execution of the update
-//! \param p_queueEvent A pointer to the queue event
-static void executeUpdate(const QueueEvent_t* p_queueEvent);
 
 /*
  *	Private tasks
@@ -160,21 +167,23 @@ static void eventTask(void* p_param)
 	QueueEvent_t queueEvent;
 	while (true) {
 		// Wait until we get a new event in the queue
-		if (xQueueReceive(g_canUpdateManagerCanQueue, &queueEvent, pdMS_TO_TICKS(250))) {
-			// Initialize update
-			if (queueEvent.command == START_UPDATE_FOR_DISPLAY) {
-				prepareUpdate(&queueEvent);
-			}
+		if (xQueueReceive(g_canUpdateManagerEventQueue, &queueEvent, portMAX_DELAY) != pdPASS) {
+			continue;
+		}
 
-			// Transmit the update file
-			if (queueEvent.command == TRANSMIT_UPDATE) {
-				transmitUpdate(&queueEvent);
-			}
+		// Initialize update
+		if (queueEvent.command == START_UPDATE_FOR_DISPLAY) {
+			prepareUpdate(&queueEvent);
+		}
 
-			// Execute the update
-			if (queueEvent.command == EXECUTE_UPDATE) {
-				executeUpdate(&queueEvent);
-			}
+		// Transmit the update file
+		if (queueEvent.command == TRANSMIT_UPDATE) {
+			transmitUpdate(&queueEvent);
+		}
+
+		// Execute the update
+		if (queueEvent.command == EXECUTE_UPDATE) {
+			executeUpdate(&queueEvent);
 		}
 	}
 }
@@ -185,7 +194,8 @@ static void eventTask(void* p_param)
 static void prepareUpdate(const QueueEvent_t* p_queueEvent)
 {
 	// Start the can task
-	if (xTaskCreate(canTask, "CanUpdateManagerCanTask", 2048 * 4, p_queueEvent->parameter, 2, &g_canTaskHandle) != pdPASS) {
+	if (xTaskCreate(canTask, "CanUpdateManagerCanTask", 2048 * 4, p_queueEvent->parameter, 2,
+	                &g_canTaskHandle) != pdPASS) {
 		ESP_LOGE("CanUpdateManager", "Couldn't create can task!");
 
 		return;
@@ -224,7 +234,7 @@ static void transmitUpdate(const QueueEvent_t* p_queueEvent)
 
 	// Logging
 	if (g_bytesTransmitted % UPDATE_BLOCK_SIZE_B * 1000 == 0) {
-		ESP_LOGI("DisplayCanUpdater", "Transmitted %d bytes of total %d bytes", g_bytesTransmitted, g_fileSizeB);
+		ESP_LOGI("CanUpdateManager", "Transmitted %d bytes of total %d bytes", g_bytesTransmitted, g_fileSizeB);
 	}
 
 	// Read the bytes
@@ -234,7 +244,7 @@ static void transmitUpdate(const QueueEvent_t* p_queueEvent)
 	}
 	else {
 		// Logging
-		ESP_LOGI("DisplayCanUpdater", "Transmitting last %d bytes", g_fileSizeB - g_bytesTransmitted);
+		ESP_LOGI("CanUpdateManager", "Transmitting last %d bytes", g_fileSizeB - g_bytesTransmitted);
 
 		amountReadBytes = fread(&frame.buffer[1], sizeof(uint8_t), g_fileSizeB - g_bytesTransmitted,
 		                        g_file);
@@ -254,7 +264,7 @@ static void transmitUpdate(const QueueEvent_t* p_queueEvent)
 static void executeUpdate(const QueueEvent_t* p_queueEvent)
 {
 	// Logging
-	ESP_LOGI("DisplayCanUpdater", "Transmitting completed. Executing update which may take a while");
+	ESP_LOGI("CanUpdateManager", "Transmitting completed. Executing update which may take a while");
 
 	// Create the CAN answer frame
 	TwaiFrame_t frame;
@@ -292,9 +302,12 @@ static void loadUpdateFileSize()
 	// Jump back to the top of the file
 	fseek(g_file, 0, SEEK_SET);
 
-	ESP_LOGI("DisplayCanUpdater", "Update file size: %d, corresponds to %d blocks", g_fileSizeB, updateFileBlocks);
+	ESP_LOGI("CanUpdateManager", "Update file size: %d, corresponds to %d blocks", g_fileSizeB, updateFileBlocks);
 }
 
+/*
+ *	Public function implementations
+*/
 void canUpdateManagerInit()
 {
 	/*
@@ -304,20 +317,17 @@ void canUpdateManagerInit()
 	canRegisterRxCbQueue(&g_canUpdateManagerCanQueue);
 
 	// Start the event task
-	if (xTaskCreate(eventTask, "CanUpdateManagerEventTask", 2048 * 4, NULL, 2, &g_canTaskHandle) != pdPASS) {
+	if (xTaskCreate(eventTask, "CanUpdateManagerEventTask", 2048 * 4, NULL, 2, &g_eventTaskHandle) != pdPASS) {
 		ESP_LOGE("CanUpdateManager", "Couldn't create event task!");
 
 		return;
 	}
 }
 
-/*
- *	Public function implementations
-*/
 bool displayUpdateCanIsUpdateAvailable()
 {
 	/*
-	 *	Get a list of all available files
+	 *	Check filesystem
 	 */
 	// Get a list of files in the SD Card updates folder
 	uint16_t amountOfFiles = 0;
@@ -327,7 +337,7 @@ bool displayUpdateCanIsUpdateAvailable()
 	}
 
 	/*
-	 * Check all files for the update file name pattern
+	 *	Check all files for the update file name pattern
 	 */
 	// Iterate through all files
 	int major, minor, patch;
@@ -377,7 +387,7 @@ bool displayUpdateCanStart(const uint8_t comId)
 		loadUpdateFileSize();
 	}
 	if (g_fileSizeB == 0) {
-		ESP_LOGE("DisplayCanUpdater", "Update file size was 0.");
+		ESP_LOGE("CanUpdateManager", "Update file size was 0.");
 
 		return false;
 	}

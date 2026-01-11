@@ -1,22 +1,19 @@
 #pragma once
 
-// C includes
-#include <stdbool.h>
-
 /*
  *	Public functions
  */
-//! \brief Initializes the Sensor Manager by initializing the ADC's, ISR services etc.
-void sensorManagerInit();
+//! \brief Initializes the Sensor Center by initializing the ADC's, ISR services etc.
+void sensorCenterInit();
 
+//! \brief Activate the ISRs needed for speed and rpm
 void sensorsActivateISRs();
 
+//! \brief Deactivate the ISRs needed for speed and rpm
 void sensorsDeactivateISRs();
 
-//! \brief Starts periodically reading all available sensors
-//! \retval Boolean indicating if everything went successful
+//! \brief Reads all available sensors once
 void sensorsReadAll();
 
-//! \brief Starts periodically sending all available sensor data via CAN bus
-//! \retval Boolean indicating if everything went successful
+//! \brief Sends all available sensor data via CAN bus once
 void sensorsSendAll();

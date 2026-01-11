@@ -28,7 +28,7 @@ static bool g_oilPressurePresent = false;
 /*
  *	Public function implementations
  */
-bool sensorsInitOilPressureSensor(const adc_oneshot_unit_handle_t* p_adcHandle,
+bool sensorOilPressureInit(const adc_oneshot_unit_handle_t* p_adcHandle,
                                   const adc_oneshot_chan_cfg_t* p_adcChannelConfig)
 {
 	// Save the adc handle
@@ -51,7 +51,7 @@ bool sensorsInitOilPressureSensor(const adc_oneshot_unit_handle_t* p_adcHandle,
 	return true;
 }
 
-void sensorsReadOilPressure()
+void sensorOilPressureRead()
 {
 	// Temporary containers
 	int rawAdcValue = 0;
@@ -77,7 +77,7 @@ void sensorsReadOilPressure()
 	g_oilPressurePresent = voltage > OIL_PRESSURE_LOWER_THRESHOLD_MV && voltage < OIL_PRESSURE_UPPER_THRESHOLD_MV;
 }
 
-bool sensorsIsOilPressurePresent()
+bool sensorOilPresserPresent()
 {
 	return g_oilPressurePresent;
 }

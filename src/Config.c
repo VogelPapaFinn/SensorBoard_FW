@@ -1,7 +1,7 @@
 #include "Config.h"
 
 // Project includes
-#include "FilesystemDriver.h"
+#include "../include/Drivers/FilesystemDriver.h"
 
 // C includes
 #include <stdio.h>
@@ -20,23 +20,18 @@
 /*
  *	Private Variables
  */
-//! \brief Contains a boolean for all configs which can be accessed via the ConfigFile_t value.
-//!	If true, the config is loaded and available otherwise it's not.
-static bool g_configAvailable[MAX_AMOUNT_OF_CONFIGS] = { false };
-static char* g_configNames[MAX_AMOUNT_OF_CONFIGS] = { NULL };
-static cJSON* g_configJsonRoot[MAX_AMOUNT_OF_CONFIGS] = { NULL };
 
 /*
  *	Private Functions
  */
-static bool fileToJson(const char* p_fileName, cJSON** p_root)
+static bool loadJsonFromFile(ConfigFile_t* p_config)
 {
 	// Open the file
-	FILE* file = filesystemOpenFile(p_fileName, "r", CONFIG_PARTITION);
+	FILE* file = filesystemOpenFile(p_config->path, "r", CONFIG_PARTITION);
 
 	// Did that work?
 	if (file == NULL) {
-		ESP_LOGE("ConfigManager", "Couldn't open file %s on partition %d", p_fileName, CONFIG_PARTITION);
+		ESP_LOGE("Config", "Couldn't open file %s on partition %d", p_config->path, CONFIG_PARTITION);
 		return false;
 	}
 
@@ -46,35 +41,35 @@ static bool fileToJson(const char* p_fileName, cJSON** p_root)
 	// Read everything from the file
 	if (fread(buffer, 1, MAX_CONFIG_SIZE_B, file) == 0) {
 		fclose(file);
-		ESP_LOGE("ConfigManager", "Couldn't read from file %s on partition %d", p_fileName, CONFIG_PARTITION);
+		ESP_LOGE("Config", "Couldn't read from file %s on partition %d", p_config->path, CONFIG_PARTITION);
 		return false;
 	}
 	fclose(file);
 
 	// Parse it to JSON
-	*p_root = cJSON_Parse(buffer);
-	if (*p_root == NULL) {
-		ESP_LOGE("ConfigManager", "Couldn't parse the content of file %s on partition %d to JSON", p_fileName, CONFIG_PARTITION);
+	p_config->jsonRoot = cJSON_Parse(buffer);
+	if (p_config->jsonRoot == NULL) {
+		ESP_LOGE("Config", "Couldn't parse the content of file %s on partition %d to JSON", p_config->path, CONFIG_PARTITION);
 		return false;
 	}
 	return true;
 }
 
-static bool jsonToFile(const cJSON* p_root, const char* p_fileName)
+static bool saveJsonToFile(ConfigFile_t* p_config)
 {
 	// Open the file
-	FILE* file = filesystemOpenFile(p_fileName, "w", CONFIG_PARTITION);
+	FILE* file = filesystemOpenFile(p_config->path, "w", CONFIG_PARTITION);
 
 	// Did that work?
 	if (file == NULL) {
-		ESP_LOGE("ConfigManager", "Couldn't open file %s on partition %d", p_fileName, CONFIG_PARTITION);
+		ESP_LOGE("Config", "Couldn't open file %s on partition %d", p_config->path, CONFIG_PARTITION);
 		return false;
 	}
 
 	// Get the JSON configuration
-	char* jsonFormatted = cJSON_Print(p_root);
+	char* jsonFormatted = cJSON_Print(p_config->jsonRoot);
 	if (jsonFormatted == NULL) {
-		ESP_LOGE("ConfigManager", "Failed to get cJSON configuration");
+		ESP_LOGE("Config", "Failed to get cJSON configuration");
 		fclose(file);
 		return false;
 	}
@@ -85,124 +80,71 @@ static bool jsonToFile(const cJSON* p_root, const char* p_fileName)
 
 	// Did it fail?
 	if (written <= 0) {
-		ESP_LOGE("ConfigManager", "Couldn't write the JSON configuration to file %s on partition %d", p_fileName, CONFIG_PARTITION);
+		ESP_LOGE("Config", "Couldn't write the JSON configuration to file %s on partition %d", p_config->path, CONFIG_PARTITION);
 		fclose(file);
 		return false;
 	}
 
 	// Flush everything
 	if (fflush(file) == EOF) {
-		ESP_LOGE("ConfigManager", "Failed to flush config to file");
+		ESP_LOGE("Config", "Failed to flush config to file");
 		fclose(file);
 		return false;
 	}
 	if (fsync(fileno(file)) == -1)
 	{
-		ESP_LOGE("ConfigManager", "Failed to syncfile content to filesystem with errno: %ss", strerror(errno));
+		ESP_LOGE("Config", "Failed to syncfile content to filesystem with errno: %ss", strerror(errno));
 		fclose(file);
 		return false;
 	}
 
 	// Close the file
 	if (fclose(file) == EOF) {
-		ESP_LOGE("ConfigManager", "Failed to close file (writing failed)");
+		ESP_LOGE("Config", "Failed to close file (writing failed)");
 		return false;
 	}
 
 	return true;
-}
-
-static char* buildDefaultConfigPath(const char* p_fileName)
-{
-	// Allocate memory for the final string
-	const size_t len = strlen(DEFAULT_CONFIG_FOLDER) + strlen("/") + strlen(p_fileName);
-	char* result = malloc(len + 1);
-	if (result == NULL) {
-		ESP_LOGE("ConfigManager", "Couldn't allocate memory for the default config file path");
-		return NULL;
-	}
-
-	// Build the string
-	snprintf(result, len, "%s/%s", DEFAULT_CONFIG_FOLDER, p_fileName);
-
-	// Return the string
-	return result;
 }
 
 /*
  *	Public Function Implementations
  */
-bool configLoadFile(const char* p_name, const ConfigFile_t handleAs)
+bool configLoad(ConfigFile_t* p_config)
 {
-	// Save the name
-	const uint8_t length = strlen(p_name) + 1;
-	g_configNames[handleAs] = malloc(length);
-	if (g_configNames[handleAs] == NULL) {
-		return false;
-	}
-	strlcpy(g_configNames[handleAs], p_name, length);
-
-	// Is there already a JSON root?
-	if (g_configJsonRoot[handleAs] != NULL) {
-		free(g_configJsonRoot[handleAs]);
-	}
-
-	// Allocate memory for the JSON root for the file
-	g_configJsonRoot[handleAs] = malloc(sizeof(cJSON));
-	if (g_configJsonRoot[handleAs] == NULL) {
-		ESP_LOGE("ConfigManager", "Couldn't allocate memory for the JSON root object of file %s.", p_name);
+	if (p_config == NULL) {
 		return false;
 	}
 
 	// Try to load the config
-	bool result = fileToJson(p_name, &g_configJsonRoot[handleAs]);
-
-	// If it failed, try to load the default config
-	if (!result) {
-		ESP_LOGW("ConfigManager", "Couldn't load config of file %s. Loading default config.", p_name);
+	if (!loadJsonFromFile(p_config)) {
+		ESP_LOGW("Config", "Couldn't load config of file %s. Loading default config.", p_config->path);
 
 		// Build the default config path
-		const char* path = buildDefaultConfigPath(p_name);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+		char tmpBuffer[MAX_CONFIG_FILE_PATH_LENGTH];
+		snprintf(tmpBuffer, MAX_CONFIG_FILE_PATH_LENGTH, "%s/%s", DEFAULT_CONFIG_FOLDER, p_config->path);
+		strlcpy(p_config->path, tmpBuffer, MAX_CONFIG_FILE_PATH_LENGTH);
+#pragma GCC diagnostic pop
 
 		// Try to load the file
-		result = fileToJson(p_name, &g_configJsonRoot[handleAs]);;
+		const bool result = loadJsonFromFile(p_config);
 
-		// Free the memory
-		free((void*)path);
-
-		// Save if it was successful
-		g_configAvailable[handleAs] = result;
-
-		// Then return result
 		return result;
 	}
 
-	// Save if it was successful
-	g_configAvailable[handleAs] = result;
-
 	// Logging
-	ESP_LOGI("ConfigManager", "Successfully loaded config file %s", p_name);
+	ESP_LOGI("Config", "Successfully loaded config file %s", p_config->path);
 
 	return true;
 }
 
-cJSON** configGet(const ConfigFile_t config)
+bool configSave(ConfigFile_t* p_config)
 {
-	// Check if the config is loaded
-	if (!g_configAvailable[config]) {
-		return NULL;
-	}
-
-	// If so, return the JSON root object
-	return &g_configJsonRoot[config];
-}
-
-bool configWriteToFile(const ConfigFile_t config)
-{
-	// Check if the config is loaded
-	if (!g_configAvailable[config]) {
+	if (p_config == NULL || p_config->jsonRoot == NULL) {
 		return false;
 	}
 
-	return jsonToFile(g_configJsonRoot[config], g_configNames[config]);
+	return saveJsonToFile(p_config);
 }

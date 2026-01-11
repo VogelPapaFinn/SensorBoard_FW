@@ -9,33 +9,31 @@
 /*
  *	Defines
  */
-#define MAX_AMOUNT_OF_CONFIGS 8
 #define MAX_CONFIG_SIZE_B 1024
+#define MAX_CONFIG_FILE_PATH_LENGTH 256
 
 /*
  *	Public Typedefs
  */
-typedef enum
+//! \brief A struct representing a config file
+typedef struct
 {
-	DISPLAY_CONFIG,
-	WIFI_CONFIG
+	//! \brief The path of the config file on the filesystem
+	char path[MAX_CONFIG_FILE_PATH_LENGTH];
+
+	//! \brief The pointer to the cJSON root object
+	cJSON* jsonRoot;
 } ConfigFile_t;
 
 /*
  *	Functions
  */
-//! \brief Tries to load a config file and saves it under the specified handle
-//! \param p_name The name of the file to load
-//! \param handleAs The handle under which it should be saved and later on accessed
+//! \brief Tries to load a config file and saves the cJSON root object in the specified struct
+//! \param p_config A pointer to the config file struct
 //! \retval Bool indicating if the config was loaded successfully
-bool configLoadFile(const char* p_name, ConfigFile_t handleAs);
+bool configLoad(ConfigFile_t* p_config);
 
-//! \brief Returns the cJSON root object of the config
-//! \param config The handle of the config
-//! \retval A pointer to the cJSON root object or NULL if the config isn't loaded
-cJSON** configGet(ConfigFile_t config);
-
-//! \brief Writes the configuration, which is saved in the cJSON root object, into the file
-//! \param config The handle of the config
-//! \retval Bool indicating if the write process succeeded
-bool configWriteToFile(ConfigFile_t config);
+//! \brief Saves the configuration to the file on the filesystem
+//! \param p_config A pointer to the config file struct
+//! \retval Bool indicating if the write process was successful
+bool configSave(ConfigFile_t* p_config);

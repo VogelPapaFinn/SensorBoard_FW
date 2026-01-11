@@ -1,8 +1,5 @@
 #include "Sensors/SpeedSensor.h"
 
-// Project includes
-#include "EventQueues.h"
-
 // C includes
 #include <math.h>
 
@@ -35,15 +32,15 @@ static void speedISR()
 /*
  *	Private functions
  */
-static uint8_t calculateSpeedFromFrequency(const double speedInHz)
+static uint8_t calculateSpeed(const double hz)
 {
-	return (uint8_t)((speedInHz / 2.0) * MPH_TO_KMH); // Return in kmh
+	return (uint8_t)((hz / 2.0) * MPH_TO_KMH); // Return in kmh
 }
 
 /*
  *	Public function implementations
  */
-bool sensorsInitSpeedSensor()
+bool sensorSpeedInit()
 {
 	// Setup GPIO
 	gpio_set_direction(SPEED_GPIO, GPIO_MODE_INPUT);
@@ -53,7 +50,7 @@ bool sensorsInitSpeedSensor()
 	return true;
 }
 
-void sensorsActivateSpeedISR()
+void sensorSpeedActivateISR()
 {
 	// Activate the ISR
 	if (gpio_isr_handler_add(SPEED_GPIO, speedISR, NULL) != ESP_OK) {
@@ -61,7 +58,7 @@ void sensorsActivateSpeedISR()
 	}
 }
 
-void sensorsDeactivateSpeedISR()
+void sensorSpeedDeactivateISR()
 {
 	// Deactivate the ISR
 	if (gpio_isr_handler_remove(SPEED_GPIO) != ESP_OK) {
@@ -69,7 +66,7 @@ void sensorsDeactivateSpeedISR()
 	}
 }
 
-uint8_t sensorsGetSpeed()
+uint8_t sensorSpeedGet()
 {
 	// Calculate how much time between the two falling edges was
 	int64_t time = 0;
@@ -85,5 +82,5 @@ uint8_t sensorsGetSpeed()
 	const double speedInHz = (int)round(1.0 / seconds);
 
 	// Convert the frequency to actual speed
-	return calculateSpeedFromFrequency(speedInHz);
+	return calculateSpeed(speedInHz);
 }

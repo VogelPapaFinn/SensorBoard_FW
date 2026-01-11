@@ -1,7 +1,7 @@
 #include "Managers/RegistrationManager.h"
 
 // Project includes
-#include "DisplayCenter.h"
+#include "Display.h"
 #include "Managers/OperationManager.h"
 #include "can.h"
 
@@ -16,7 +16,13 @@
 
 /*
  *	Prototypes
- */
+*/
+//! \brief Task used to receive and handle CAN frames
+//! \param p_param Unused parameters
+static void canTask(void* p_param);
+
+//! \brief Cb function of timeout timer. Broadcasts a request via CAN for all displays to register themselves
+//! \param p_arg Unused arguments
 static void broadcastRegistrationRequestCb(void* p_arg);
 
 /*
@@ -37,8 +43,6 @@ static const esp_timer_create_args_t g_registrationTimerConfig = {.callback = &b
 /*
  *	Tasks and ISRs
  */
-//! \brief Task used to receive and handle CAN frames
-//! \param p_param Unused parameters
 static void canTask(void* p_param)
 {
 	// Wait for new queue events
@@ -53,7 +57,7 @@ static void canTask(void* p_param)
 		const uint8_t frameId = rxFrame.header.id >> CAN_FRAME_ID_OFFSET;
 
 		// Get the sender com id
-		uint8_t senderId = rxFrame.header.id & 0x1FFFFF; // Zero top 8 bits
+		const uint8_t senderId = rxFrame.header.id & 0x1FFFFF; // Zero top 8 bits
 
 		// We received a registration request
 		if (frameId == CAN_MSG_REGISTRATION && rxFrame.buffer_len >= 6) {
@@ -61,8 +65,10 @@ static void canTask(void* p_param)
 			 *	Register it internally
 			 */
 			// Pass it to the Display Manager
-			uint8_t screen;
-			displayRegisterWithUUID(rxFrame.buffer, &senderId, &screen);
+			const DisplayConfig_t* config = displayRegister(rxFrame.buffer);
+			if (config == NULL) {
+				continue;
+			}
 
 			/*
 			 *	Send the com id and the screen type back
@@ -79,10 +85,10 @@ static void canTask(void* p_param)
 			frame.buffer[5] = *(rxFrame.buffer + 5); // NOLINT
 
 			// Insert the com id
-			frame.buffer[6] = senderId; // NOLINT
+			frame.buffer[6] = config->comId; // NOLINT
 
 			// Insert the screen
-			frame.buffer[7] = screen; // NOLINT
+			frame.buffer[7] = config->screen; // NOLINT
 
 			// Initiate the frame
 			canInitiateFrame(&frame, CAN_MSG_COMID_ASSIGNATION, 8);
@@ -97,6 +103,21 @@ static void canTask(void* p_param)
 			         frame.buffer[1],
 			         frame.buffer[2], frame.buffer[3], frame.buffer[4], frame.buffer[5]);
 
+			/*
+			 *	Request the firmware version
+			 */
+			// Insert the UUID
+			frame.buffer[0] = config->comId; // NOLINT
+
+			// Initiate the frame
+			canInitiateFrame(&frame, CAN_MSG_REQUEST_FIRMWARE_VERSION, 1);
+
+			// Send the frame
+			canQueueFrame(&frame);
+
+			/*
+			 *	Enter operation mode if needed
+			 */
 			// All displays registered?
 			if (displayAllRegistered()) {
 				ESP_LOGI("RegistrationManager", "All displays registered themselves. Entering operation mode");

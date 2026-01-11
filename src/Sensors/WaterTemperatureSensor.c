@@ -46,7 +46,7 @@ static uint8_t g_waterTemperature = 0;
 /*
  *	Private functions
  */
-static uint8_t calculateTemperatureFromResistance(const uint16_t r) {
+static uint8_t calculateTemperature(const uint16_t r) {
 	// Check if it is below the first element
 	if (r > g_tempResistanceTuples[0].resistance) {
 		return g_tempResistanceTuples[0].temp;
@@ -82,7 +82,7 @@ static uint8_t calculateTemperatureFromResistance(const uint16_t r) {
 /*
  *	Public function implementations
  */
-bool sensorsInitWaterTemperatureSensor(const adc_oneshot_unit_handle_t* p_adcHandle,
+bool sensorWaterTemperatureInit(const adc_oneshot_unit_handle_t* p_adcHandle,
                                        const adc_oneshot_chan_cfg_t* p_adcChannelConfig)
 {
 	// Save the adc handle
@@ -105,7 +105,7 @@ bool sensorsInitWaterTemperatureSensor(const adc_oneshot_unit_handle_t* p_adcHan
 	return true;
 }
 
-void sensorsReadWaterTemperature()
+void sensorWaterTemperatureRead()
 {
 	// Temporary containers
 	int rawAdcValue = 0;
@@ -131,10 +131,10 @@ void sensorsReadWaterTemperature()
 	const double r2 = sensorUtilsCalculateVoltageDividerR2(voltage, WATER_TEMPERATURE_R1);
 
 	// Calculate the water temperature from the calculated resistance
-	g_waterTemperature = calculateTemperatureFromResistance((uint16_t)r2);
+	g_waterTemperature = calculateTemperature((uint16_t)r2);
 }
 
-uint8_t sensorsGetWaterTemperature()
+uint8_t sensorWaterTemperatureGet()
 {
 	return g_waterTemperature;
 }

@@ -1,6 +1,6 @@
 // Project includes
-#include "FilesystemDriver.h"
-#include "DisplayCenter.h"
+#include "../include/Drivers/FilesystemDriver.h"
+#include "Display.h"
 #include "EventQueues.h"
 #include "Managers/RegistrationManager.h"
 #include "SensorCenter.h"
@@ -55,10 +55,7 @@ void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 	createEventQueues();
 
 	// Initialize the Sensor Manager
-	sensorManagerInit();
-
-	// Initialize the Display Manager
-	displayCenterInit();
+	sensorCenterInit();
 
 	// Initialize the can node
 	canInitializeNode(GPIO_NUM_43, GPIO_NUM_2);
