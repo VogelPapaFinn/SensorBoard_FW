@@ -12,4 +12,8 @@
  */
 bool sensorsInitSpeedSensor();
 
+void sensorsActivateSpeedISR();
+
+void sensorsDeactivateSpeedISR();
+
 uint8_t sensorsGetSpeed();

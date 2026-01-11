@@ -7,6 +7,8 @@
 /*
  *	Public functions
  */
+void canUpdateManagerInit();
+
 //! \brief Checks the updates folder on the SD Card for an update file
 //! \retval Bool indicating if an update file was found
 //! \note The first update file found is used. The version number does not get checked!

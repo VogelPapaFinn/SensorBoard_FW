@@ -12,4 +12,8 @@
  */
 bool sensorsInitRpmSensor();
 
+void sensorsActivateRpmISR();
+
+void sensorsDeactivateRpmISR();
+
 uint16_t sensorsGetRpm();

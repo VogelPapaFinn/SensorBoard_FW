@@ -1,4 +1,4 @@
-#include "../../include/UpdateManagers/DisplayCanUpdater.h"
+#include "../../include/Managers/CanUpdateManager.h"
 
 // Project includes
 #include "FilesystemDriver.h"
@@ -39,8 +39,11 @@ static char g_fileName[UPDATE_FILE_MAX_NAME_LENGTH] = {'\0'};
 //! \brief Stream to read from the update file
 static FILE* g_file = NULL;
 
-//! \brief Task handle of the update task
-static TaskHandle_t g_taskHandle;
+//! \brief Task handle of the can task
+static TaskHandle_t g_canTaskHandle;
+
+//! \brief Task handle of the event task
+static TaskHandle_t g_eventTaskHandle;
 
 //! \brief Amount of total bytes transmitted
 static uint32_t g_bytesTransmitted = 0;
@@ -50,11 +53,7 @@ static uint32_t g_bytesTransmitted = 0;
  */
 //! \brief FreeRTOS task which handles all events in the event queue
 //! \param p_param Unused parameters
-static void updateTask(void* p_param);
-
-//! \brief Handles all incoming CAN frames
-//! \param p_queueEvent A pointer to the received CAN frame
-static void handleCanFrame(const QueueEvent_t* p_queueEvent);
+static void eventTask(void* p_param);
 
 //! \brief Handles the preparations of the update
 //! \param p_queueEvent A pointer to the queue event
@@ -71,7 +70,87 @@ static void executeUpdate(const QueueEvent_t* p_queueEvent);
 /*
  *	Private tasks
  */
-static void updateTask(void* p_param)
+static void canTask(void* p_param)
+{
+	if (!g_updateAvailable) {
+		vTaskDelete(NULL);
+	}
+
+	// Wait for new queue events
+	twai_frame_t rxFrame;
+	while (true) {
+		// Wait until we get a new event in the queue
+		if (xQueueReceive(g_operationManagerCanQueue, &rxFrame, portMAX_DELAY) != pdPASS) {
+			continue;
+		}
+
+		// Get the message id
+		const uint8_t messageId = rxFrame.header.id >> CAN_FRAME_ID_OFFSET;
+
+		// Get the sender com id
+		const uint32_t senderId = (uint8_t)rxFrame.header.id;
+
+		// Is it of the display we update?
+		if (senderId != *(uint8_t*)p_param) {
+			continue;
+		}
+
+		// Acknowledge of Initialization of Update
+		if (messageId == CAN_MSG_PREPARE_UPDATE) {
+			// Queue the event
+			QueueEvent_t event;
+			event.command = TRANSMIT_UPDATE;
+			event.parameter = (void*)&senderId;
+			event.parameterLength = sizeof(uint8_t);
+			xQueueSend(g_canUpdateManagerEventQueue, &event, portMAX_DELAY);
+			continue;
+		}
+
+		// Answer to the last transmitted update file block
+		if (messageId == CAN_MSG_TRANSMIT_UPDATE_FILE) {
+			// Was it the last block of the file?
+			if (g_bytesTransmitted >= g_fileSizeB) {
+				// Queue the execution of the update
+				QueueEvent_t event;
+				event.command = EXECUTE_UPDATE;
+				event.parameter = (void*)&senderId;
+				event.parameterLength = sizeof(uint8_t);
+				xQueueSend(g_canUpdateManagerEventQueue, &event, portMAX_DELAY);
+
+				continue;
+			}
+
+			// Queue the transmission of the next block
+			QueueEvent_t event;
+			event.command = TRANSMIT_UPDATE;
+			event.parameter = (void*)&senderId;
+			event.parameterLength = sizeof(uint8_t);
+			xQueueSend(g_canUpdateManagerEventQueue, &event, portMAX_DELAY);
+
+			continue;
+		}
+
+		// Acknowledge of the update execution
+		if (messageId == CAN_MSG_EXECUTE_UPDATE) {
+			// Unregister the update queue from the CAN
+			canUnregisterRxCbQueue(&g_canUpdateManagerEventQueue);
+
+			// Stop the update task
+			vTaskDelete(g_canTaskHandle);
+
+			// Queue the restart of the display
+			QueueEvent_t event;
+			event.command = RESTART_DISPLAY;
+			event.parameter = (void*)&senderId;
+			event.parameterLength = sizeof(uint8_t);
+			xQueueSend(g_mainEventQueue, &event, portMAX_DELAY);
+
+			continue;
+		}
+	}
+}
+
+static void eventTask(void* p_param)
 {
 	if (!g_updateAvailable) {
 		vTaskDelete(NULL);
@@ -81,14 +160,9 @@ static void updateTask(void* p_param)
 	QueueEvent_t queueEvent;
 	while (true) {
 		// Wait until we get a new event in the queue
-		if (xQueueReceive(g_displayCanUpdateEventQueue, &queueEvent, pdMS_TO_TICKS(250))) {
-			// New CAN message
-			if (queueEvent.command == RECEIVED_NEW_CAN_FRAME) {
-				handleCanFrame(&queueEvent);
-			}
-
+		if (xQueueReceive(g_canUpdateManagerCanQueue, &queueEvent, pdMS_TO_TICKS(250))) {
 			// Initialize update
-			if (queueEvent.command == INITIALIZE_UPDATE) {
+			if (queueEvent.command == START_UPDATE_FOR_DISPLAY) {
 				prepareUpdate(&queueEvent);
 			}
 
@@ -108,82 +182,19 @@ static void updateTask(void* p_param)
 /*
  *	Private functions
  */
-static void handleCanFrame(const QueueEvent_t* p_queueEvent)
-{
-	// Get the frame
-	const twai_frame_t recFrame = p_queueEvent->canFrame;
-
-	// Get the message id
-	const uint8_t messageId = recFrame.header.id >> CAN_MESSAGE_ID_OFFSET;
-
-	// Get the sender com id
-	const uint32_t senderComId = (uint8_t)recFrame.header.id;
-
-	// Is it of the display we update?
-	if (senderComId != *(uint8_t*)p_queueEvent->parameter) {
-		return;
-	}
-
-	// Acknowledge of Initialization of Update
-	if (messageId == CAN_MSG_PREPARE_UPDATE) {
-		// Queue the event
-		QueueEvent_t event;
-		event.command = TRANSMIT_UPDATE;
-		event.parameter = p_queueEvent->parameter;
-		event.parameterLength = sizeof(uint8_t);
-		xQueueSend(g_displayCanUpdateEventQueue, &event, portMAX_DELAY);
-		return;
-	}
-
-	// Answer to the last transmitted update file block
-	if (messageId == CAN_MSG_TRANSMIT_UPDATE_FILE) {
-		// Was it the last block of the file?
-		if (g_bytesTransmitted >= g_fileSizeB) {
-			// Queue the execution of the update
-			QueueEvent_t event;
-			event.command = EXECUTE_UPDATE;
-			event.parameter = p_queueEvent->parameter;
-			event.parameterLength = sizeof(uint8_t);
-			xQueueSend(g_displayCanUpdateEventQueue, &event, portMAX_DELAY);
-
-			return;
-		}
-
-		// Queue the transmission of the next block
-		QueueEvent_t event;
-		event.command = TRANSMIT_UPDATE;
-		event.parameter = p_queueEvent->parameter;
-		event.parameterLength = sizeof(uint8_t);
-		xQueueSend(g_displayCanUpdateEventQueue, &event, portMAX_DELAY);
-
-		return;
-	}
-
-	// Acknowledge of the update execution
-	if (messageId == CAN_MSG_EXECUTE_UPDATE) {
-		// Unregister the update queue from the CAN
-		canUnregisterRxCbQueue(&g_displayCanUpdateEventQueue);
-
-		// Stop the update task
-		vTaskDelete(g_taskHandle);
-
-		// Queue the restart of the display
-		QueueEvent_t event;
-		event.command = RESTART_DISPLAY;
-		event.parameter = p_queueEvent->parameter;
-		event.parameterLength = sizeof(uint8_t);
-		xQueueSend(g_mainEventQueue, &event, portMAX_DELAY);
-
-		return;
-	}
-}
-
 static void prepareUpdate(const QueueEvent_t* p_queueEvent)
 {
+	// Start the can task
+	if (xTaskCreate(canTask, "CanUpdateManagerCanTask", 2048 * 4, p_queueEvent->parameter, 2, &g_canTaskHandle) != pdPASS) {
+		ESP_LOGE("CanUpdateManager", "Couldn't create can task!");
+
+		return;
+	}
+
 	/*
 	 * Tell the display to brace itself for the update
 	 */
-	// Create the CAN answer frame
+	// Create the CAN frame
 	TwaiFrame_t frame;
 
 	// Set the com id
@@ -226,7 +237,7 @@ static void transmitUpdate(const QueueEvent_t* p_queueEvent)
 		ESP_LOGI("DisplayCanUpdater", "Transmitting last %d bytes", g_fileSizeB - g_bytesTransmitted);
 
 		amountReadBytes = fread(&frame.buffer[1], sizeof(uint8_t), g_fileSizeB - g_bytesTransmitted,
-		                                g_file);
+		                        g_file);
 	}
 	g_bytesTransmitted += amountReadBytes;
 
@@ -282,6 +293,22 @@ static void loadUpdateFileSize()
 	fseek(g_file, 0, SEEK_SET);
 
 	ESP_LOGI("DisplayCanUpdater", "Update file size: %d, corresponds to %d blocks", g_fileSizeB, updateFileBlocks);
+}
+
+void canUpdateManagerInit()
+{
+	/*
+	 *	Start the update task
+	 */
+	// Register the update task queue to the CAN bus
+	canRegisterRxCbQueue(&g_canUpdateManagerCanQueue);
+
+	// Start the event task
+	if (xTaskCreate(eventTask, "CanUpdateManagerEventTask", 2048 * 4, NULL, 2, &g_canTaskHandle) != pdPASS) {
+		ESP_LOGE("CanUpdateManager", "Couldn't create event task!");
+
+		return;
+	}
 }
 
 /*
@@ -354,26 +381,6 @@ bool displayUpdateCanStart(const uint8_t comId)
 
 		return false;
 	}
-
-	/*
-	 *	Start the update task
-	 */
-	// Register the update task queue to the CAN bus
-	canRegisterRxCbQueue(&g_displayCanUpdateEventQueue);
-
-	// Start the update task
-	if (xTaskCreate(updateTask, "displayUpdateTask", 2048 * 4, NULL, 2, &g_taskHandle) != pdPASS) {
-		ESP_LOGE("DisplayCanUpdater", "Couldn't create update task!");
-
-		return false;
-	}
-
-	// And queue the initialization of the update
-	QueueEvent_t event;
-	event.command = INITIALIZE_UPDATE;
-	event.parameter = (void*)&comId;
-	event.parameterLength = sizeof(comId);
-	xQueueSend(g_displayCanUpdateEventQueue, &event, portMAX_DELAY);
 
 	return true;
 }

@@ -9,13 +9,14 @@
 //! \brief Initializes the Sensor Manager by initializing the ADC's, ISR services etc.
 void sensorManagerInit();
 
+void sensorsActivateISRs();
+
+void sensorsDeactivateISRs();
+
 //! \brief Starts periodically reading all available sensors
 //! \retval Boolean indicating if everything went successful
-bool sensorsStartReadingAllSensors();
+void sensorsReadAll();
 
 //! \brief Starts periodically sending all available sensor data via CAN bus
 //! \retval Boolean indicating if everything went successful
-bool sensorsStartSendingSensorData();
-
-//! \brief Stops periodically sending all available sensor data via CAN bus
-void sensorsStopSendingSensorData();
+void sensorsSendAll();

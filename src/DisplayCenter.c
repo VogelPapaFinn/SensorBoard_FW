@@ -1,7 +1,7 @@
-#include "DisplayManager.h"
+#include "DisplayCenter.h"
 
 // Project includes
-#include "ConfigManager.h"
+#include "Config.h"
 #include "can.h"
 #include "FilesystemDriver.h"
 
@@ -16,7 +16,6 @@
 #define UUID_LENGTH_B 6
 #define FORMATTED_UUID_LENGTH_B 24
 #define DISPLAY_CONFIG_NAME "displays_config.json"
-#define REGISTRATION_REQUEST_INTERVAL_MICROS (1000 * 1000) // 1000 milliseconds
 
 #define FIRMWARE_LENGTH 5
 #define HASH_LENGTH 9
@@ -39,13 +38,6 @@ typedef struct
 	//! \brief The commit hash of the firmware version
 	char* commitHash;
 } DisplayConfig_t;
-
-/*
- *	Private function prototypes
- */
-//! \brief Broadcasts the registration requests on the CAN bus
-//! \param p_arg Unused pointer which is needed for the espidf timer to trigger the function correctly
-static void broadcastRegistrationRequestCb(void* p_arg);
 
 //! \brief Returns the comId assigned to the specified uuid
 //! \param p_uuid The uuid array, usually 6 Bytes long
@@ -83,36 +75,12 @@ static void displayPrintConfigFile();
 //! \brief Amount of connected displays. Used for assigning the COM IDs
 static uint8_t g_amountOfConnectedDisplays;
 
-//! \brief Bool indicating if the registration process is currently active
-static bool g_registrationProcessActive = false;
-
-//! \brief Handle of the timer which is used in the registration process to periodically
-//! send the registration request
-static esp_timer_handle_t g_registrationTimerHandle;
-
-//! \brief The config of the timer which is used in the registration process to periodically
-//! send the registration request
-static const esp_timer_create_args_t g_registrationTimerConfig = {.callback = &broadcastRegistrationRequestCb,
-                                                                  .name = "Display Registration Timer"};
-
 //! \brief The array which holds the DisplayConfig_t instances
 static DisplayConfig_t g_displayConfigs[AMOUNT_OF_DISPLAYS];
 
 /*
  *	Private functions
  */
-static void broadcastRegistrationRequestCb(void* p_arg)
-{
-	// Create the CAN answer frame
-	TwaiFrame_t frame;
-
-	// Initiate the frame
-	canInitiateFrame(&frame, CAN_MSG_REGISTRATION, 0);
-
-	// Send the frame
-	canQueueFrame(&frame);
-}
-
 static uint8_t getComIdFromUuid(const uint8_t* p_uuid)
 {
 	// Is the uuid valid?
@@ -392,7 +360,7 @@ static void displayPrintConfigFile()
 /*
  *	Public function implementations
  */
-void displayManagerInit()
+void displayCenterInit()
 {
 	// Load the display config
 	configLoadFile(&DISPLAY_CONFIG_NAME[0], DISPLAY_CONFIG);
@@ -422,115 +390,55 @@ void displayRestart(const uint8_t comId)
 	canQueueFrame(&frame);
 }
 
-void displayStartRegistrationProcess()
-{
-	// Are we already in the registration process?
-	if (g_registrationProcessActive) {
-		ESP_LOGW("DisplayManager", "There were multiple attempts to start the display registration process!");
-		return;
-	}
-
-	// Start the process
-	g_registrationProcessActive = true;
-
-	// Create the registration timer
-	esp_timer_create(&g_registrationTimerConfig, &g_registrationTimerHandle);
-
-	// Then start the timer
-	esp_timer_start_periodic(g_registrationTimerHandle, (uint64_t)REGISTRATION_REQUEST_INTERVAL_MICROS);
-}
-
-uint8_t displayRegisterWithUUID(const uint8_t* p_uuid)
+void displayRegisterWithUUID(const uint8_t* p_uuid, uint8_t* p_senderId, uint8_t* p_screen)
 {
 	// Check if uuid is valid
-	if (p_uuid == NULL) {
-		ESP_LOGE("DisplayManager", "Received a NULL ID in the registration process");
-		return 0;
+	if (p_uuid == NULL || p_senderId == NULL || p_screen == NULL) {
+		ESP_LOGE("DisplayManager", "Received a NULL ptr in the registration process");
+		return;
 	}
 
 	/*
 	 *	Check if we do we already have enough displays
 	 */
-	uint8_t comId = 0;
 	if (g_amountOfConnectedDisplays >= AMOUNT_OF_DISPLAYS) {
 		// Get its com id
-		comId = getComIdFromUuid(p_uuid);
+		*p_senderId = getComIdFromUuid(p_uuid);
 
 		// Is it a valid com id?
-		if (comId == 0) {
+		if (*p_senderId == 0) {
 			ESP_LOGW("DisplayManager", "A device tried to register itself but we already know %d devices",
 			         AMOUNT_OF_DISPLAYS);
-			return 0;
+			return;
 		}
 	}
 
 	/*
 	 *	Create a new configuration if it is an unknown device
 	 */
-	if (comId == 0) {
-		comId = createConfigForUnknownDevice(p_uuid);
+	if (*p_senderId == 0) {
+		*p_senderId = createConfigForUnknownDevice(p_uuid);
 
 		// Couldn't create com id
-		if (comId == 0) {
+		if (*p_senderId == 0) {
 			ESP_LOGE("DisplayManager", "Couldn't create com id for newly registered device");
-			return 0;
+			return;
 		}
 	}
+
+	g_amountOfConnectedDisplays++;
 
 	/*
 	 *	Get the screen
 	 */
-	Screen_t screen = loadScreenForComIdFromFile(p_uuid);
+	*p_screen  = loadScreenForComIdFromFile(p_uuid);
 
 	// If it is unknown, replace it with the default screen
-	if (screen == SCREEN_UNKNOWN) {
-		screen = SCREEN_TEMPERATURE;
+	if (*p_screen == SCREEN_UNKNOWN) {
+		*p_screen = SCREEN_TEMPERATURE;
 	}
 
-	/*
-	 *	Create and send the CAN message
-	 */
-	// Create the CAN answer frame
-	TwaiFrame_t frame;
-
-	// Insert the UUID
-	frame.buffer[0] = *(p_uuid + 0); // NOLINT
-	frame.buffer[1] = *(p_uuid + 1); // NOLINT
-	frame.buffer[2] = *(p_uuid + 2); // NOLINT
-	frame.buffer[3] = *(p_uuid + 3); // NOLINT
-	frame.buffer[4] = *(p_uuid + 4); // NOLINT
-	frame.buffer[5] = *(p_uuid + 5); // NOLINT
-
-	// Insert the com id
-	frame.buffer[6] = comId; // NOLINT
-
-	// Insert the screen
-	frame.buffer[7] = screen; // NOLINT
-
-	// Initiate the frame
-	canInitiateFrame(&frame, CAN_MSG_COMID_ASSIGNATION, 8);
-
-	// Send the frame
-	canQueueFrame(&frame);
-
-	// Logging
-	ESP_LOGI("DisplayManager", "Sending ID '%d' and screen '%d' to UUID '%d-%d-%d-%d-%d-%d'", frame.buffer[6],
-	         frame.buffer[7], frame.buffer[0],
-	         frame.buffer[1],
-	         frame.buffer[2], frame.buffer[3], frame.buffer[4], frame.buffer[5]);
-
-	// Check if all devices registered
-	if (g_registrationProcessActive && g_amountOfConnectedDisplays >= AMOUNT_OF_DISPLAYS) {
-		// Stop and delete the registration timer
-		esp_timer_stop(g_registrationTimerHandle);
-
-		// Enter the operation mode
-		QueueEvent_t event;
-		event.command = INIT_OPERATION_MODE;
-		xQueueSend(g_mainEventQueue, &event, pdMS_TO_TICKS(100));
-	}
-
-	return comId;
+	return;
 }
 
 void displaySetFirmwareVersion(const uint8_t comId, const uint8_t* p_firmware)
@@ -630,4 +538,9 @@ void displaySetCommitInformation(const uint8_t comId, const uint8_t* p_informati
 	if (*(p_information + 7) == true) {
 		config->commitHash[HASH_LENGTH - 2] = 'd';
 	}
+}
+
+bool displayAllRegistered()
+{
+	return g_amountOfConnectedDisplays >= AMOUNT_OF_DISPLAYS;
 }

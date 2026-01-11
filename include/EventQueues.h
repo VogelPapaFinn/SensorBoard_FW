@@ -7,14 +7,8 @@
 #include "freertos/FreeRTOS.h"
 
 /*
- *	Public Stuff
+ *	Public typedefs
  */
-//! \brief The Queue used to update the displays
-extern QueueHandle_t g_displayCanUpdateEventQueue;
-
-//! \brief The Queue used to send events to the main application (main.c)
-extern QueueHandle_t g_mainEventQueue;
-
 //! \brief A typedef enum that contains commands for all Queues
 typedef enum
 {
@@ -22,20 +16,22 @@ typedef enum
 	 * CAN
 	 */
 	CAN_DRIVER_CRASHED,
-	RECEIVED_NEW_CAN_FRAME,
 
 	/*
-	 * MAIN
+	 *	Main
 	 */
-	START_REGISTRATION_PROCESS,
-	INIT_OPERATION_MODE,
-	READ_SENSOR_DATA,
 	RESTART_DISPLAY,
 
 	/*
-	 *	UPDATE
+	 * Operation
 	 */
-	INITIALIZE_UPDATE,
+	READ_SENSOR_DATA,
+	SEND_SENSOR_DATA,
+
+	/*
+	 *	CanUpdateManager
+	 */
+	START_UPDATE_FOR_DISPLAY,
 	TRANSMIT_UPDATE,
 	EXECUTE_UPDATE,
 } QueueCommand_t;
@@ -46,15 +42,36 @@ typedef struct
 	//! \brief The command of the event
 	QueueCommand_t command;
 
-	//! \brief An optional CAN frame
-	twai_frame_t canFrame;
-
 	//! \brief Additional parameters
 	void* parameter;
 
 	//! \brief Additional parameters length
 	uint16_t parameterLength;
 } QueueEvent_t;
+
+/*
+ *	CAN queues
+ */
+//! \brief The Queue used to send CAN frames to the registration manager
+extern QueueHandle_t g_registrationManagerCanQueue;
+
+//! \brief The Queue used to send CAN frames to the operation manager
+extern QueueHandle_t g_operationManagerCanQueue;
+
+//! \brief T The Queue used to send CAN frames to the can update manager
+extern QueueHandle_t g_canUpdateManagerCanQueue;
+
+/*
+ *	Event queues
+ */
+//! \brief The Queue used to send events to the main application (main.c)
+extern QueueHandle_t g_mainEventQueue;
+
+//! \brief The Queue used to send events to the operation manager
+extern QueueHandle_t g_operationManagerEventQueue;
+
+//! \brief The Queue used to send events to the can update manager
+extern QueueHandle_t g_canUpdateManagerEventQueue;
 
 /*
  *	Functions

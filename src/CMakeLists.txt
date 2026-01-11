@@ -11,12 +11,12 @@ set(FILES
         "WebInterface/WebAPI.c"
 
         # Config Manager
-        "../include/ConfigManager.h"
-        "ConfigManager.c"
+        "../include/Config.h"
+        "Config.c"
 
         # Display Manager
-        "../include/DisplayManager.h"
-        "DisplayManager.c"
+        "../include/DisplayCenter.h"
+        "DisplayCenter.c"
 
         # File Manager
         "../include/FilesystemDriver.h"
@@ -26,13 +26,19 @@ set(FILES
         "../include/EventQueues.h"
         "EventQueues.c"
 
-        # Sensor Manager
-        "../include/SensorManager.h"
-        "SensorManager.c"
+        # Sensor Center
+        "../include/SensorCenter.h"
+        "SensorCenter.c"
 
-        # Display Can Update
-        "../include/UpdateManagers/DisplayCanUpdater.h"
-        "UpdateManagers/DisplayCanUpdater.c"
+        # Managers
+        "../include/Managers/ManagerUtils.h"
+        "Managers/ManagerUtils.c"
+        "../include/Managers/RegistrationManager.h"
+        "Managers/RegistrationManager.c"
+        "../include/Managers/OperationManager.h"
+        "Managers/OperationManager.c"
+        "../include/Managers/CanUpdateManager.h"
+        "Managers/CanUpdateManager.c"
 
         # Sensors
         "../include/Sensors/FuelLevelSensor.h"

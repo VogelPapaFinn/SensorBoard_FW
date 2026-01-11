@@ -90,6 +90,22 @@ bool sensorsInitRpmSensor()
 	return true;
 }
 
+void sensorsActivateRpmISR()
+{
+	// Activate the ISR
+	if (gpio_isr_handler_add(RPM_GPIO, rpmISR, NULL) != ESP_OK) {
+		ESP_LOGE("RPMSensor", "Failed to enable the ISR for rpm sensor");
+	}
+}
+
+void sensorsDeactivateRpmISR()
+{
+	// Deactivate the ISR
+	if (gpio_isr_handler_remove(RPM_GPIO) != ESP_OK) {
+		ESP_LOGE("RPMSensor", "Failed to disable the ISR for rpm sensor");
+	}
+}
+
 uint16_t sensorsGetRpm()
 {
 	// Calculate how much time between the two falling edges was

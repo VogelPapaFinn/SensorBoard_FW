@@ -50,14 +50,23 @@ bool sensorsInitSpeedSensor()
 	gpio_set_pull_mode(SPEED_GPIO, GPIO_PULLDOWN_ONLY);
 	gpio_set_intr_type(SPEED_GPIO, GPIO_INTR_POSEDGE);
 
+	return true;
+}
+
+void sensorsActivateSpeedISR()
+{
 	// Activate the ISR
 	if (gpio_isr_handler_add(SPEED_GPIO, speedISR, NULL) != ESP_OK) {
 		ESP_LOGE("SpeedSensor", "Failed to enable the ISR for speed sensor");
-
-		return false;
 	}
+}
 
-	return true;
+void sensorsDeactivateSpeedISR()
+{
+	// Deactivate the ISR
+	if (gpio_isr_handler_remove(SPEED_GPIO) != ESP_OK) {
+		ESP_LOGE("SpeedSensor", "Failed to disable the ISR for speed sensor");
+	}
 }
 
 uint8_t sensorsGetSpeed()
