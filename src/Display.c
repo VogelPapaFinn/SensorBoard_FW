@@ -60,9 +60,12 @@ static uint8_t getComId(const uint8_t* p_uuid)
 		if (g_displayRuntimeConfigs[i].comId == 0) {
 			continue;
 		}
-
 		// Check if the uuids match
-		if (strcmp((char*)p_uuid, (char*)g_displayRuntimeConfigs[i].uuid) == 0) {
+		char formattedUuid1[FORMATTED_UUID_LENGTH_B + 1];
+		char formattedUuid2[FORMATTED_UUID_LENGTH_B + 1];
+		getFormattedUuid((char*)p_uuid, formattedUuid1);
+		getFormattedUuid((char*)g_displayRuntimeConfigs[i].uuid, formattedUuid2);
+		if (strcmp(formattedUuid1, formattedUuid2) == 0) {
 			return g_displayRuntimeConfigs[i].comId;
 		}
 	}
@@ -102,6 +105,9 @@ static DisplayConfig_t* trackDisplay(const DisplayConfig_t* p_config)
 
 	// Set the com id
 	runtimeConfig->comId = ++g_amountConnectedDisplays;
+
+	// Set the uuid
+	memcpy(runtimeConfig->uuid, p_config->uuid, UUID_LENGTH_B);
 
 	/*
 	 *	2. Unknown display but has config file entry
@@ -222,7 +228,7 @@ DisplayConfig_t* displayRegister(const uint8_t* p_uuid)
 	DisplayConfig_t config;
 
 	// Copy the uuid
-	strlcpy((char*)config.uuid, (char*)p_uuid, UUID_LENGTH_B);
+	memcpy(config.uuid, p_uuid, UUID_LENGTH_B);
 
 	// Get its com id
 	config.comId = getComId(p_uuid);
@@ -290,7 +296,8 @@ void displaySetCommitInformation(const uint8_t comId, const uint8_t* p_commit)
 		memset(g_displayRuntimeConfigs[i].commitHash, '\0', COMMIT_LENGTH_B);
 
 		// Copy the firmware version into the config
-		snprintf(&g_displayRuntimeConfigs[i].commitHash[0], COMMIT_LENGTH_B, "%c%c%c%c%c%c%c", *(p_commit), *(p_commit + 1),
+		snprintf(&g_displayRuntimeConfigs[i].commitHash[0], COMMIT_LENGTH_B, "%c%c%c%c%c%c%c", *(p_commit),
+		         *(p_commit + 1),
 		         *(p_commit + 2), *(p_commit + 3), *(p_commit + 4), *(p_commit + 5), *(p_commit + 6));
 
 		// Is it a dirty commit?

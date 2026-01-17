@@ -69,7 +69,7 @@ static const esp_timer_create_args_t g_sendSensorDataTimerConf = {.callback = &s
 static void canTask(void* p_param)
 {
 	// Wait for new queue events
-	twai_frame_t rxFrame;
+	TwaiFrame_t rxFrame;
 	while (true) {
 		// Wait until we get a new event in the queue
 		if (xQueueReceive(g_operationManagerCanQueue, &rxFrame, portMAX_DELAY) != pdPASS) {
@@ -80,16 +80,16 @@ static void canTask(void* p_param)
 		 *	Preparations
 		 */
 		// Get the frame id
-		const uint8_t frameId = rxFrame.header.id >> CAN_FRAME_ID_OFFSET;
+		const uint8_t frameId = rxFrame.espidfFrame.header.id >> CAN_FRAME_ID_OFFSET;
 
 		// Get the sender com id
-		const uint8_t senderId = rxFrame.header.id & 0x1FFFFF; // Zero top 8 bits
+		const uint8_t senderId = rxFrame.espidfFrame.header.id & 0x1FFFFF; // Zero top 8 bits
 
 		/*
 		 *	Com id specific frames
 		 */
 		// Skip if we were not meant
-		if (rxFrame.header.dlc == 0 || *rxFrame.buffer != g_ownCanComId) {
+		if (rxFrame.espidfFrame.header.dlc == 0 || *rxFrame.buffer != g_ownCanComId) {
 			continue;
 		}
 
@@ -119,7 +119,7 @@ static void canTask(void* p_param)
 		}
 
 		// Answer to the commit information request
-		if (frameId == CAN_MSG_REQUEST_COMMIT_INFORMATION && rxFrame.buffer_len >= 4) {
+		if (frameId == CAN_MSG_REQUEST_COMMIT_INFORMATION && rxFrame.espidfFrame.buffer_len >= 4) {
 			/*
 			 *	Pass it to the Display Manager
 			 */
@@ -193,9 +193,6 @@ bool operationManagerInit()
 
 		return false;
 	}
-
-	// Destroy the registration manager
-	registrationManagerDestroy();
 
 	// Start the Webinterface
 	// startWebInterface(GET_FROM_CONFIG);

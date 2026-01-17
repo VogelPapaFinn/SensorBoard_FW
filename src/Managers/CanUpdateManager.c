@@ -84,7 +84,7 @@ static void canTask(void* p_param)
 	}
 
 	// Wait for new queue events
-	twai_frame_t rxFrame;
+	TwaiFrame_t rxFrame;
 	while (true) {
 		// Wait until we get a new event in the queue
 		if (xQueueReceive(g_operationManagerCanQueue, &rxFrame, portMAX_DELAY) != pdPASS) {
@@ -92,10 +92,10 @@ static void canTask(void* p_param)
 		}
 
 		// Get the message id
-		const uint8_t messageId = rxFrame.header.id >> CAN_FRAME_ID_OFFSET;
+		const uint8_t messageId = rxFrame.espidfFrame.header.id >> CAN_FRAME_ID_OFFSET;
 
 		// Get the sender com id
-		const uint32_t senderId = (uint8_t)rxFrame.header.id;
+		const uint32_t senderId = (uint8_t)rxFrame.espidfFrame.header.id;
 
 		// Is it of the display we update?
 		if (senderId != *(uint8_t*)p_param) {

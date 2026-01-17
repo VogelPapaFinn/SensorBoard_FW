@@ -31,6 +31,9 @@ static void broadcastRegistrationRequestCb(void* p_arg);
 //! \brief Task handle of the CAN task
 static TaskHandle_t g_canTaskHandle;
 
+//! \brief Bool indicating if the operation mode was already entered
+static bool g_operationAlreadyEntered = false;
+
 //! \brief Handle of the timer which is used in the registration process to periodically
 //! send the registration request
 static esp_timer_handle_t g_registrationTimerHandle;
@@ -46,7 +49,7 @@ static const esp_timer_create_args_t g_registrationTimerConfig = {.callback = &b
 static void canTask(void* p_param)
 {
 	// Wait for new queue events
-	twai_frame_t rxFrame;
+	TwaiFrame_t rxFrame;
 	while (true) {
 		// Wait until we get a new event in the queue
 		if (xQueueReceive(g_registrationManagerCanQueue, &rxFrame, portMAX_DELAY) != pdPASS) {
@@ -54,13 +57,13 @@ static void canTask(void* p_param)
 		}
 
 		// Get the frame id
-		const uint8_t frameId = rxFrame.header.id >> CAN_FRAME_ID_OFFSET;
+		const uint8_t frameId = rxFrame.espidfFrame.header.id >> CAN_FRAME_ID_OFFSET;
 
 		// Get the sender com id
-		const uint8_t senderId = rxFrame.header.id & 0x1FFFFF; // Zero top 8 bits
+		const uint8_t senderId = rxFrame.espidfFrame.header.id & 0x1FFFFF; // Zero top 8 bits
 
 		// We received a registration request
-		if (frameId == CAN_MSG_REGISTRATION && rxFrame.buffer_len >= 6) {
+		if (frameId == CAN_MSG_REGISTRATION && rxFrame.espidfFrame.header.dlc >= 6) {
 			/*
 			 *	Register it internally
 			 */
@@ -69,6 +72,7 @@ static void canTask(void* p_param)
 			if (config == NULL) {
 				continue;
 			}
+
 
 			/*
 			 *	Send the com id and the screen type back
@@ -119,14 +123,16 @@ static void canTask(void* p_param)
 			 *	Enter operation mode if needed
 			 */
 			// All displays registered?
-			if (displayAllRegistered()) {
+			if (displayAllRegistered() && !g_operationAlreadyEntered) {
+				g_operationAlreadyEntered = true;
 				ESP_LOGI("RegistrationManager", "All displays registered themselves. Entering operation mode");
+
+				// Stop and delete the registration timer
+				esp_timer_stop(g_registrationTimerHandle);
+				esp_timer_delete(g_registrationTimerHandle);
 
 				// Enter the operation mode
 				operationManagerInit();
-
-				// Delete the task
-				vTaskDelete(NULL);
 
 				continue;
 			}
