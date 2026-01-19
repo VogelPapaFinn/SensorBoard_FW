@@ -8,7 +8,9 @@
 #include "can.h"
 
 // espidf includes
-#include "esp_log.h"
+#include <esp_log.h>
+#include <esp_ota_ops.h>
+#include <esp_partition.h>
 #include <sys/dirent.h>
 #include <sys/stat.h>
 
@@ -37,13 +39,25 @@ void debugListAllSpiffsFiles()
 /*
  *	Main functions
  */
-void app_main(void) // NOLINT - Deactivate clang-tiny for this line
+void app_main(void) // NOLINT - Deactivate clang-tidy for this line
 {
 	/*
 	 *	Initial Logging
 	 */
 	ESP_LOGI("main", "--- --- --- --- --- --- ---");
 	ESP_LOGI("main", "Firmware Version: %s", VERSION_FULL);
+
+	// Check on which OTA partition we are
+	const esp_partition_t* partition = esp_ota_get_running_partition();
+	if (partition != NULL) {
+		ESP_LOGI("main", "Current running partition: %s", partition->label);
+		ESP_LOGI("main", "Type: %d, Subtype: %d", partition->type, partition->subtype);
+		ESP_LOGI("main", "Address: 0x%08" PRIx32, partition->address);
+		ESP_LOGI("main", "Size: 0x%08" PRIx32 " bytes", partition->size);
+	}
+	else {
+		ESP_LOGE("main", "Couldn't load OTA partition!");
+	}
 
 	/*
 	 *	Initialization of Drivers etc.
@@ -85,7 +99,7 @@ void app_main(void) // NOLINT - Deactivate clang-tiny for this line
 			if (canRecoverDriver() == ESP_OK) {
 				ESP_LOGI("main", "Recovered CAN driver");
 
-				return;
+				continue;
 			}
 
 			ESP_LOGE("main", "Couldn't recover CAN driver");

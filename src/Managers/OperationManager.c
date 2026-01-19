@@ -2,9 +2,10 @@
 
 // Project includes
 #include "Display.h"
+#include "Drivers/WifiDriver.h"
 #include "Managers/CanUpdateManager.h"
-#include "Managers/RegistrationManager.h"
 #include "SensorCenter.h"
+#include "WifiOtaUpdate.h"
 #include "can.h"
 
 // espidf includes
@@ -151,6 +152,12 @@ static void eventTask(void* p_param)
 			sensorsSendAll();
 			continue;
 		}
+
+		// Is it an OTA Update?
+		if (event.command == WIFI_OTA_EXECUTE_UPDATE) {
+			wifiOtaUpdateExecute();
+			continue;
+		}
 	}
 }
 
@@ -211,6 +218,12 @@ bool operationManagerInit()
 
 	// Initiate the CAN Update Manager
 	canUpdateManagerInit();
+
+	// Connect to Wifi
+	wifiSetType(HOST_AP);
+	if (!wifiConnect()) {
+		ESP_LOGE("OperationManager", "Couldn't connect to WiFi");
+	}
 
 	return true;
 }

@@ -106,7 +106,7 @@ static void canTask(void* p_param)
 		if (messageId == CAN_MSG_PREPARE_UPDATE) {
 			// Queue the event
 			QueueEvent_t event;
-			event.command = TRANSMIT_UPDATE;
+			event.command = CAN_OTA_TRANSMIT_UPDATE;
 			event.parameter = (void*)&senderId;
 			event.parameterLength = sizeof(uint8_t);
 			xQueueSend(g_canUpdateManagerEventQueue, &event, portMAX_DELAY);
@@ -119,7 +119,7 @@ static void canTask(void* p_param)
 			if (g_bytesTransmitted >= g_fileSizeB) {
 				// Queue the execution of the update
 				QueueEvent_t event;
-				event.command = EXECUTE_UPDATE;
+				event.command = CAN_OTA_EXECUTE_UPDATE;
 				event.parameter = (void*)&senderId;
 				event.parameterLength = sizeof(uint8_t);
 				xQueueSend(g_canUpdateManagerEventQueue, &event, portMAX_DELAY);
@@ -129,7 +129,7 @@ static void canTask(void* p_param)
 
 			// Queue the transmission of the next block
 			QueueEvent_t event;
-			event.command = TRANSMIT_UPDATE;
+			event.command = CAN_OTA_TRANSMIT_UPDATE;
 			event.parameter = (void*)&senderId;
 			event.parameterLength = sizeof(uint8_t);
 			xQueueSend(g_canUpdateManagerEventQueue, &event, portMAX_DELAY);
@@ -172,17 +172,17 @@ static void eventTask(void* p_param)
 		}
 
 		// Initialize update
-		if (queueEvent.command == START_UPDATE_FOR_DISPLAY) {
+		if (queueEvent.command == CAN_OTA_START_UPDATE_FOR_DISPLAY) {
 			prepareUpdate(&queueEvent);
 		}
 
 		// Transmit the update file
-		if (queueEvent.command == TRANSMIT_UPDATE) {
+		if (queueEvent.command == CAN_OTA_TRANSMIT_UPDATE) {
 			transmitUpdate(&queueEvent);
 		}
 
 		// Execute the update
-		if (queueEvent.command == EXECUTE_UPDATE) {
+		if (queueEvent.command == CAN_OTA_EXECUTE_UPDATE) {
 			executeUpdate(&queueEvent);
 		}
 	}

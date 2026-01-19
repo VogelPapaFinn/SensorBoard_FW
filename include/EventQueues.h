@@ -31,9 +31,14 @@ typedef enum
 	/*
 	 *	CanUpdateManager
 	 */
-	START_UPDATE_FOR_DISPLAY,
-	TRANSMIT_UPDATE,
-	EXECUTE_UPDATE,
+	CAN_OTA_START_UPDATE_FOR_DISPLAY,
+	CAN_OTA_TRANSMIT_UPDATE,
+	CAN_OTA_EXECUTE_UPDATE,
+
+	/*
+	 *	WiFi OTA Update
+	 */
+	WIFI_OTA_EXECUTE_UPDATE,
 } QueueCommand_t;
 
 //! \brief A typedef struct which is used in the event queues
