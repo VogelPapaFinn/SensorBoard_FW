@@ -2,7 +2,7 @@
 
 // Project includes
 #include "Display.h"
-#include "Drivers/WifiDriver.h"
+#include "Drivers/Wifi.h"
 #include "Managers/CanUpdateManager.h"
 #include "SensorCenter.h"
 #include "WifiOtaUpdate.h"
@@ -26,7 +26,7 @@
 */
 //! \brief Task used to receive and handle CAN frames
 //! \param p_param Unused parameters
-static void canTask(void* p_param);
+static void giveCanIdReceiveTask(void* p_param);
 
 //! \brief Task used to receive and handle events
 //! \param p_param Unused parameters
@@ -67,7 +67,7 @@ static const esp_timer_create_args_t g_sendSensorDataTimerConf = {.callback = &s
 /*
  *	Tasks & ISRs
  */
-static void canTask(void* p_param)
+static void giveCanIdReceiveTask(void* p_param)
 {
 	// Wait for new queue events
 	TwaiFrame_t rxFrame;
@@ -188,7 +188,7 @@ bool operationManagerInit()
 	}
 
 	// Start the can task
-	if (xTaskCreate(canTask, "OperationManagerCanTask", 2048 * 4, NULL, 0, &g_canTaskHandle) != pdPASS) {
+	if (xTaskCreate(giveCanIdReceiveTask, "OperationManagerCanTask", 2048 * 4, NULL, 0, &g_canTaskHandle) != pdPASS) {
 		ESP_LOGE("OperationManager", "Couldn't create CAN task!");
 
 		return false;

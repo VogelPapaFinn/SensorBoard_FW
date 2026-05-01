@@ -1,7 +1,7 @@
 #include "WifiOtaUpdate.h"
 
 // Project includes
-#include "Drivers/WifiDriver.h"
+#include "Drivers/Wifi.h"
 
 // espidf includes
 #include <esp_http_client.h>

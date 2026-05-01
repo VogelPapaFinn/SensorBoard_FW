@@ -1,7 +1,7 @@
 #include "Managers/CanUpdateManager.h"
 
 // Project includes
-#include "Drivers/FilesystemDriver.h"
+#include "Drivers/Filesystem.h"
 #include "can.h"
 
 // C includes
@@ -29,7 +29,7 @@
 */
 //! \brief FreeRTOS task which handles all CAN frames
 //! \param p_param Unused parameters
-static void canTask(void* p_param);
+static void giveCanIdReceiveTask(void* p_param);
 
 //! \brief FreeRTOS task which handles all events in the event queue
 //! \param p_param Unused parameters
@@ -77,7 +77,7 @@ static uint32_t g_bytesTransmitted = 0;
 /*
  *	Private tasks
  */
-static void canTask(void* p_param)
+static void giveCanIdReceiveTask(void* p_param)
 {
 	if (!g_updateAvailable) {
 		vTaskDelete(NULL);
@@ -194,7 +194,7 @@ static void eventTask(void* p_param)
 static void prepareUpdate(const QueueEvent_t* p_queueEvent)
 {
 	// Start the can task
-	if (xTaskCreate(canTask, "CanUpdateManagerCanTask", 2048 * 4, p_queueEvent->parameter, 2,
+	if (xTaskCreate(giveCanIdReceiveTask, "CanUpdateManagerCanTask", 2048 * 4, p_queueEvent->parameter, 2,
 	                &g_canTaskHandle) != pdPASS) {
 		ESP_LOGE("CanUpdateManager", "Couldn't create can task!");
 

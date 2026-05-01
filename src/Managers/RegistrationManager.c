@@ -19,7 +19,7 @@
 */
 //! \brief Task used to receive and handle CAN frames
 //! \param p_param Unused parameters
-static void canTask(void* p_param);
+static void giveCanIdReceiveTask(void* p_param);
 
 //! \brief Cb function of timeout timer. Broadcasts a request via CAN for all displays to register themselves
 //! \param p_arg Unused arguments
@@ -46,7 +46,7 @@ static const esp_timer_create_args_t g_registrationTimerConfig = {.callback = &b
 /*
  *	Tasks and ISRs
  */
-static void canTask(void* p_param)
+static void giveCanIdReceiveTask(void* p_param)
 {
 	// Wait for new queue events
 	TwaiFrame_t rxFrame;
@@ -165,7 +165,7 @@ bool registrationManagerInit()
 	}
 
 	// Start the can task
-	if (xTaskCreate(canTask, "RegistrationManagerCanTask", 2048 * 4, NULL, 0, &g_canTaskHandle) != pdPASS) {
+	if (xTaskCreate(giveCanIdReceiveTask, "RegistrationManagerCanTask", 2048 * 4, NULL, 0, &g_canTaskHandle) != pdPASS) {
 		ESP_LOGE("RegistrationManager", "Couldn't create CAN task!");
 
 		return false;
