@@ -24,7 +24,7 @@ public:
 	/*
 	 *	Public Functions
 	 */
-	Filesystem(bool mountSdCard = true, bool mountSpiffs = true);
+	static Filesystem* get(bool mountSdCard = true, bool mountSpiffs = true);
 
 	bool doesFileExist(const std::string& path, Location location);
 
@@ -45,6 +45,8 @@ private:
 	/*
 	 *	Private Functions
 	 */
+	Filesystem(bool mountSdCard = true, bool mountSpiffs = true);
+
 	bool isLocationMounted(const Location& location) const;
 
 	static std::string buildFullPath(const std::string& path, const Location& location);
@@ -52,6 +54,8 @@ private:
 	/*
 	 *	Private Variables
 	 */
+	static Filesystem* instance_;
+
 	/* SD Card Stuff */
 	bool sdCardInserted_ = false;
 	bool sdCardMounted_ = false;

@@ -2,6 +2,7 @@
 #include "Can.hpp"
 #include "Driver/Display.hpp"
 #include "Driver/Filesystem.hpp"
+#include "Config.hpp"
 
 // espidf includes
 #include <freertos/FreeRTOS.h>
@@ -20,10 +21,48 @@ static void canTask(void* p_param)
 	}
 }
 
+#include "ArduinoJson.hpp"
 extern "C" void app_main(void)
 {
-	Filesystem fs;
-	fs.test();
+	Filesystem* fs = Filesystem::get();
+	fs->test();
+
+	Config cfg("displays_config.json");
+	ArduinoJson::JsonDocument* doc = cfg.getJson();
+
+	std::string output = "";
+	ArduinoJson::serializeJsonPretty(*doc, output);
+	ESP_LOGI("main", "%s", output.c_str());
+
+	cfg.save();
+
+	output = "";
+	ArduinoJson::serializeJsonPretty(*doc, output);
+	ESP_LOGI("main", "%s", output.c_str());
+
+	std::string c = (*doc)["displayConfigurations"][0]["hwUuid"];
+	ESP_LOGI("main", "displayConfigurations: %s", c.c_str());
+	(*doc)["displayConfigurations"][0]["hwUuid"] = "123";
+
+	output = "";
+	ArduinoJson::serializeJsonPretty(*doc, output);
+	ESP_LOGI("main", "%s", output.c_str());
+
+	cfg.save();
+
+	output = "";
+	ArduinoJson::serializeJsonPretty(*doc, output);
+	ESP_LOGI("main", "%s", output.c_str());
+
+	//
+	//Config cfg2("displays_config.json");
+	//
+	//ArduinoJson::JsonDocument* doc2 = cfg2.getJson();
+	//
+	//const char* c2 = (*doc2)["displayConfigurations"]["hwUuid"];
+	//ESP_LOGI("main", "displayConfigurations: %s", c2);
+	//(*doc2)["displayConfigurations"]["hwUuid"] = "123";
+	//cfg2.save();
 
 	while (true) {
 		vTaskDelay(pdMS_TO_TICKS(1000));

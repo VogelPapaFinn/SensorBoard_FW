@@ -31,6 +31,11 @@ constexpr gpio_num_t GPIO_D3 = GPIO_NUM_18;
 constexpr uint8_t MAX_OPEN_FILES = 5;
 
 /*
+ *	Static Variable Initialization
+ */
+Filesystem* Filesystem::instance_ = nullptr;
+
+/*
  *	Public Function Implementations
  */
 Filesystem::Filesystem(bool mountSdCard, bool mountSpiffs)
@@ -106,6 +111,15 @@ Filesystem::Filesystem(bool mountSdCard, bool mountSpiffs)
 	} else {
 		ESP_LOGI(TAG, "Initialized");
 	}
+}
+
+Filesystem* Filesystem::get(bool mountSdCard, bool mountSpiffs)
+{
+	if (instance_ == nullptr) {
+		instance_ = new Filesystem(mountSdCard, mountSdCard);
+	}
+
+	return instance_;
 }
 
 bool Filesystem::doesFileExist(const std::string& path, Location location)

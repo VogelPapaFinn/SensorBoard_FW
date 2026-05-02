@@ -7,10 +7,13 @@ set(FILES
         # Drivers
         "Driver/Display.cpp"
         "Driver/Filesystem.cpp"
+
+        # Core
+        "Config.cpp"
 )
 
 idf_component_register(SRCS ${FILES}
-        PRIV_REQUIRES src driver spi_flash esp_psram esp_adc fatfs spiffs esp_wifi esp_http_server nvs_flash can esp_timer app_update esp_http_client esp_https_ota mbedtls esp-tls
+        PRIV_REQUIRES src driver spi_flash esp_psram esp_adc fatfs spiffs esp_wifi esp_http_server nvs_flash can esp_timer app_update esp_http_client esp_https_ota mbedtls esp-tls ArduinoJson
         INCLUDE_DIRS "../include" "."
         EMBED_TXTFILES "" # For Files
         EMBED_FILES "") # For images
