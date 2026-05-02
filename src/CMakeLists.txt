@@ -6,14 +6,26 @@ set(FILES
 
         # Drivers
         "Driver/Display.cpp"
-        "Driver/Filesystem.cpp"
 
         # Core
         "Config.cpp"
+
+        # Sensors
+        "Sensor/ActiveSensor.cpp"
+        "Sensor/PassiveSensor.cpp"
+
+        "Sensor/OilPressure.cpp"
+        "Sensor/WaterTemperature.cpp"
+        "Sensor/FuelLevel.cpp"
+
+        "Sensor/Speed.cpp"
+        "Sensor/Rpm.cpp"
+        "Sensor/LeftIndicator.cpp"
+        "Sensor/RightIndicator.cpp"
 )
 
 idf_component_register(SRCS ${FILES}
-        PRIV_REQUIRES src driver spi_flash esp_psram esp_adc fatfs spiffs esp_wifi esp_http_server nvs_flash can esp_timer app_update esp_http_client esp_https_ota mbedtls esp-tls ArduinoJson
+        PRIV_REQUIRES src driver spi_flash esp_psram esp_adc esp_wifi esp_http_server can esp_timer app_update esp_http_client esp_https_ota mbedtls esp-tls ArduinoJson filesystem
         INCLUDE_DIRS "../include" "."
         EMBED_TXTFILES "" # For Files
         EMBED_FILES "") # For images

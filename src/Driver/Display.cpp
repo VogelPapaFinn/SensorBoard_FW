@@ -2,7 +2,7 @@
 
 // Project includes
 #include "Global.h"
-#include "can.h"
+#include "Can.hpp"
 
 // espidf includes
 #include "esp_log.h"
@@ -23,7 +23,7 @@ constexpr auto TAG = "Display";
 void Display::giveCanIdReceiveTask(void* p_param)
 {
 	// Wait for new queue events
-	TwaiFrame_t rxFrame;
+	/*TwaiFrame_t rxFrame;
 	while (true) {
 		// Wait until we get a new event in the queue
 		if (xQueueReceive(g_operationManagerCanQueue, &rxFrame, portMAX_DELAY) != pdPASS) {
@@ -40,17 +40,17 @@ void Display::giveCanIdReceiveTask(void* p_param)
 		if (senderId != *(uint8_t*)p_param) {
 			continue;
 		}
-	}
+	}*/
 }
 
 void Display::giveCanIdSendTask(void* p_param)
 {
 	// Build CAN frame
-	TwaiFrame_t frame;
-	const CanGroup_t group = GROUP_CONFIGURATION;
-	const CanGroupFunction_t function = FUNCTION_0;
-	canInitiateFrame(&frame, (group << 4) + function, 1);
-	frame.buffer[0] = canId_;
+	// TwaiFrame_t frame;
+	// const CanGroup_t group = GROUP_CONFIGURATION;
+	// const CanGroupFunction_t function = FUNCTION_0;
+	// canInitiateFrame(&frame, (group << 4) + function, 1);
+	// frame.buffer[0] = canId_;
 }
 
 
@@ -86,15 +86,17 @@ void Display::shutdownPower() const
 
 void Display::giveCanId()
 {
+	// TODO: Implement logic to give a Display its ID
+
 	if (g_possibleCanIds.empty()) {
 		ESP_LOGE(TAG, "All CAN ID's are already occupied");
 		return;
 	}
 
-	if (!canIsReadyTransmit()) {
-		ESP_LOGW(TAG, "Can't give Can ID. Can not ready for transmitting");
-		return;
-	}
+	// if (!canIsReadyTransmit()) {
+	// 	ESP_LOGW(TAG, "Can't give Can ID. Can not ready for transmitting");
+	// 	return;
+	// }
 
 	// Get an available can id
 	if (canId_ != 0) {
@@ -103,9 +105,9 @@ void Display::giveCanId()
 		ESP_LOGD(TAG, "Occupied CAN ID: %d", canId_);
 	}
 
-	if (!canRegisterRxCbQueue(&canQueue_)) {
-		ESP_LOGW(TAG, "Couldn't register CAN callback queue");
-	}
+	// if (!canRegisterRxCbQueue(&canQueue_)) {
+	// 	ESP_LOGW(TAG, "Couldn't register CAN callback queue");
+	// }
 
 	// Start the can task
 	// if (xTaskCreate(giveCanIdReceiveTask, "DisplayGiveCanIdReceiveTask", 2048 * 4, nullptr, 2, &giveCanIdReceiveTask_) != pdPASS) {
