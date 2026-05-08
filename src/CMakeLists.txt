@@ -9,7 +9,6 @@ set(FILES
 
         # Core
         "Core.cpp"
-        "Config.cpp"
 
         # States
         "State/State.cpp"

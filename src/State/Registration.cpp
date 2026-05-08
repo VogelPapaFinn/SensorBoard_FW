@@ -33,7 +33,8 @@ void Registration::handleCanFrame(const Can::Frame& frame)
 			// Correct ID
 			if (frame.sender == expectedCanId) {
 				confirmId(currDisplay);
-				nextDisplay();
+				// nextDisplay();
+				setScreen();
 				return;
 			}
 
