@@ -8,7 +8,12 @@ set(FILES
         "Driver/Display.cpp"
 
         # Core
+        "Core.cpp"
         "Config.cpp"
+
+        # States
+        "State/State.cpp"
+        "State/Registration.cpp"
 
         # Sensors
         "Sensor/ActiveSensor.cpp"

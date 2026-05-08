@@ -11,22 +11,15 @@
 class Display
 {
 public:
-	explicit Display(gpio_num_t powerGpio);
+	explicit Display(gpio_num_t powerGpio, const uint8_t& canId);
 
-	void supplyPower() const;
+	uint8_t getCanId() const;
 
-	void shutdownPower() const;
+	void turnOn() const;
 
-	void giveCanId();
+	void turnOff() const;
 
 private:
-	/*
-	 *	Private Tasks
-	 */
-	void giveCanIdReceiveTask(void* p_param);
-
-	void giveCanIdSendTask(void* p_param);
-
 	uint8_t canId_ : 3 = 0;
 
 	gpio_num_t powerGpio_ = GPIO_NUM_NC;
