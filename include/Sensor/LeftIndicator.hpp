@@ -13,13 +13,11 @@ public:
 	/*
 	 *	Public Callback functions
 	 */
-	void isr() override;
+	void cb() override;
 
 private:
 	/*
 	 *	Private Variables
 	 */
 	bool high_ = false;
-
-	gpio_num_t gpio_ = GPIO_NUM_15;
 };

@@ -4,11 +4,12 @@
 #include "Can.hpp"
 #include "Driver/Display.hpp"
 
+// espidf includes
+#include "esp_adc/adc_oneshot.h"
+
 /*
  *	Public constexpr
  */
-constexpr uint8_t MASTER_CAN_ID = 1;
-
 constexpr gpio_num_t GPIO_DISPLAY1 = GPIO_NUM_13;
 constexpr gpio_num_t GPIO_DISPLAY2 = GPIO_NUM_14;
 constexpr gpio_num_t GPIO_DISPLAY3 = GPIO_NUM_21;
@@ -26,6 +27,8 @@ public:
 	QueueHandle_t getMainEventQueue() const;
 
 	std::vector<Display>* getDisplays();
+
+	adc_oneshot_unit_handle_t* getAdc();
 
 	/*
 	 *	CAN related functions
@@ -51,8 +54,10 @@ private:
 	QueueHandle_t mainEventQueue_ = nullptr;
 
 	std::vector<Display> displays_ = {
-		Display(GPIO_DISPLAY1, MASTER_CAN_ID + 1),
-		Display(GPIO_DISPLAY2, MASTER_CAN_ID + 2),
-		Display(GPIO_DISPLAY3, MASTER_CAN_ID + 3),
+		Display(GPIO_DISPLAY1, CAN_MASTER_ID + 1),
+		Display(GPIO_DISPLAY2, CAN_MASTER_ID + 2),
+		Display(GPIO_DISPLAY3, CAN_MASTER_ID + 3),
 	};
+
+	adc_oneshot_unit_handle_t adc1Handle_;
 };

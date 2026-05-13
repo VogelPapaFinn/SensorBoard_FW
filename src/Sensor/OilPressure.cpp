@@ -9,7 +9,7 @@ constexpr uint8_t UPPER_THRESHOLD_MV = 255; // mV -> R2 ~= 20 Ohms
 /*
  *	Public Function Implementations
  */
-OilPressure::OilPressure(adc_oneshot_unit_handle_t* adc) : PassiveSensor(adc) {}
+OilPressure::OilPressure(adc_oneshot_unit_handle_t* adc) : PassiveSensor(GPIO_NUM_2, ADC_CHANNEL_1, adc) {}
 
 int OilPressure::get()
 {

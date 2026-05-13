@@ -20,8 +20,4 @@ protected:
 	 *	Private Variables
 	 */
 	bool pressure_ = false;
-
-	adc_channel_t channel_ = ADC_CHANNEL_1;
-
-	gpio_num_t gpio_ = GPIO_NUM_2;
 };

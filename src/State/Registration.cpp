@@ -1,5 +1,8 @@
 #include "State/Registration.hpp"
 
+// Project includes
+#include "Event.hpp"
+
 /*
  *	Public Function Implementations
  */
@@ -18,7 +21,7 @@ void Registration::handleCanFrame(const Can::Frame& frame)
 		return;
 	}
 
-	if (frame.target != MASTER_CAN_ID) {
+	if (frame.target != CAN_MASTER_ID) {
 		return;
 	}
 
@@ -33,7 +36,6 @@ void Registration::handleCanFrame(const Can::Frame& frame)
 			// Correct ID
 			if (frame.sender == expectedCanId) {
 				confirmId(currDisplay);
-				// nextDisplay();
 				setScreen();
 				return;
 			}
@@ -42,7 +44,7 @@ void Registration::handleCanFrame(const Can::Frame& frame)
 			setId(frame.sender, expectedCanId);
 			return;
 		}
-			break;
+		break;
 
 		case CanFrame::SET_ID:
 		{
@@ -53,7 +55,6 @@ void Registration::handleCanFrame(const Can::Frame& frame)
 			// Matches now
 			if (frame.sender == expectedCanId) {
 				confirmId(expectedCanId);
-				//nextDisplay();
 				setScreen();
 				return;
 			}
@@ -62,7 +63,7 @@ void Registration::handleCanFrame(const Can::Frame& frame)
 			setId(frame.sender, expectedCanId);
 			return;
 		}
-			break;
+		break;
 
 		case CanFrame::SET_SCREEN:
 		{
@@ -70,15 +71,15 @@ void Registration::handleCanFrame(const Can::Frame& frame)
 				return;
 			}
 
-			wakeUp();
-
-		} break;
+			nextDisplay();
+		}
+		break;
 
 		default:
 		{
 			esp_rom_printf("DEFAULT\n");
 		}
-			break;
+		break;
 	}
 }
 
@@ -88,7 +89,7 @@ void Registration::handleCanFrame(const Can::Frame& frame)
 void Registration::confirmId(const uint8_t& id)
 {
 	Can::Frame txFrame;
-	txFrame.sender = MASTER_CAN_ID;
+	txFrame.sender = CAN_MASTER_ID;
 	txFrame.target = id;
 	txFrame.group = CanFrame::GROUP::CONFIGURATION;
 	txFrame.function = CanFrame::CONFIGURATION::CONFIRM_ID;
@@ -100,7 +101,7 @@ void Registration::confirmId(const uint8_t& id)
 void Registration::setId(const uint8_t& oldId, const uint8_t& newId)
 {
 	Can::Frame txFrame;
-	txFrame.sender = MASTER_CAN_ID;
+	txFrame.sender = CAN_MASTER_ID;
 	txFrame.target = oldId;
 	txFrame.group = CanFrame::GROUP::CONFIGURATION;
 	txFrame.function = CanFrame::CONFIGURATION::SET_ID;
@@ -113,21 +114,22 @@ void Registration::setId(const uint8_t& oldId, const uint8_t& newId)
 
 void Registration::nextDisplay()
 {
-	// Todo: Implement logic to iterate through all displays and initialize them
-
 	if (++currDisplay >= 1) {
-		// TODO: Wake up displays & enter operating mode
-		esp_rom_printf("All Displays connected!\n");
+		wakeUpAllDisplays();
+
+		Event event(Event::REGISTRATION_FINISHED);
+		xQueueSend(core_->getMainEventQueue(), &event, portMAX_DELAY);
+
 		return;
 	}
 
-	// displays.at(currDisplay).turnOn();
+	core_->getDisplays()->at(currDisplay).turnOn();
 }
 
 void Registration::setScreen()
 {
 	Can::Frame txFrame;
-	txFrame.sender = MASTER_CAN_ID;
+	txFrame.sender = CAN_MASTER_ID;
 	txFrame.target = core_->getDisplays()->at(currDisplay).getCanId();
 	txFrame.group = CanFrame::GROUP::CONFIGURATION;
 	txFrame.function = CanFrame::CONFIGURATION::SET_SCREEN;
@@ -138,11 +140,11 @@ void Registration::setScreen()
 	Core::get()->getCan()->queueFrame(txFrame);
 }
 
-void Registration::wakeUp()
+void Registration::wakeUpAllDisplays()
 {
 	Can::Frame txFrame;
-	txFrame.sender = MASTER_CAN_ID;
-	txFrame.target = core_->getDisplays()->at(currDisplay).getCanId();
+	txFrame.sender = CAN_MASTER_ID;
+	txFrame.target = CAN_BROADCAST_ID;
 	txFrame.group = CanFrame::GROUP::CONFIGURATION;
 	txFrame.function = CanFrame::CONFIGURATION::WAKE_UP;
 	txFrame.dataLengthCode = 0;

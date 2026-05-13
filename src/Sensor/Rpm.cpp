@@ -19,7 +19,10 @@ constexpr uint16_t MAX_RPM = 8000;
 /*
  *	Public Function Implementations
  */
-Rpm::Rpm() : ActiveSensor(GPIO_INTR_POSEDGE) {}
+Rpm::Rpm() : ActiveSensor(GPIO_NUM_9, GPIO_INTR_POSEDGE)
+{
+	gpio_set_pull_mode(gpio_, GPIO_PULLDOWN_ONLY);
+}
 
 int Rpm::get()
 {
@@ -38,7 +41,7 @@ int Rpm::get()
 	return rpm_;
 }
 
-void Rpm::isr()
+void Rpm::cb()
 {
 	lastFallingEdgeTime_ = fallingEdgeTime_;
 	fallingEdgeTime_ = esp_timer_get_time();

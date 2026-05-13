@@ -6,6 +6,7 @@ set(FILES
 
         # Drivers
         "Driver/Display.cpp"
+        "Driver/KLine.cpp"
 
         # Core
         "Core.cpp"
@@ -13,6 +14,7 @@ set(FILES
         # States
         "State/State.cpp"
         "State/Registration.cpp"
+        "State/Operation.cpp"
 
         # Sensors
         "Sensor/ActiveSensor.cpp"

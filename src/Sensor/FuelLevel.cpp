@@ -10,7 +10,10 @@ constexpr uint16_t R1 = 240;
 /*
  *	Public Function Implementations
  */
-FuelLevel::FuelLevel(adc_oneshot_unit_handle_t* adc) : PassiveSensor(adc) {}
+FuelLevel::FuelLevel(adc_oneshot_unit_handle_t* adc) :
+	PassiveSensor(GPIO_NUM_1, ADC_CHANNEL_0, adc)
+{
+}
 
 int FuelLevel::get()
 {

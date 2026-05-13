@@ -12,8 +12,10 @@ constexpr double VOLTAGE = 3.3;
 /*
  *	Public Function Implementations
  */
-PassiveSensor::PassiveSensor(adc_oneshot_unit_handle_t* adc)
+PassiveSensor::PassiveSensor(gpio_num_t gpio, adc_channel_t adcChannel, adc_oneshot_unit_handle_t* adc)
 {
+	gpio_ = gpio;
+	channel_ = adcChannel;
 	adc_ = adc;
 
 	gpio_set_direction(gpio_, GPIO_MODE_INPUT);

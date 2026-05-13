@@ -13,7 +13,7 @@ public:
 	/*
 	 *	Public Callback functions
 	 */
-	void isr() override;
+	void cb() override;
 
 private:
 	/*
@@ -24,8 +24,6 @@ private:
 	/*
 	 *	Private Variables
 	 */
-	gpio_num_t gpio_ = GPIO_NUM_9;
-
 	int64_t lastFallingEdgeTime_ = 0;
 	int64_t fallingEdgeTime_ = 0;
 

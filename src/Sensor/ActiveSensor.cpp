@@ -18,16 +18,16 @@ static IRAM_ATTR void staticIsr(void* arg)
 	}
 
 	ActiveSensor* instance = static_cast<ActiveSensor*>(arg);
-	instance->isr();
+	instance->cb();
 }
 
 /*
  *	Public Function Implementations
  */
-ActiveSensor::ActiveSensor(const gpio_int_type_t& triggeringEdge)
+ActiveSensor::ActiveSensor(const gpio_num_t gpio, const gpio_int_type_t& triggeringEdge)
 {
+	gpio_ = gpio;
 	gpio_set_direction(gpio_, GPIO_MODE_INPUT);
-	gpio_set_pull_mode(gpio_, GPIO_PULLDOWN_ONLY);
 	gpio_set_intr_type(gpio_, triggeringEdge);
 
 	enable();
@@ -61,4 +61,4 @@ void ActiveSensor::disable()
 
 int ActiveSensor::get() { return 0; }
 
-void ActiveSensor::isr() {}
+void ActiveSensor::cb() {}

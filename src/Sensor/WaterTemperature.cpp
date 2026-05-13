@@ -28,7 +28,7 @@ constexpr uint8_t amountResistanceTuples = sizeof(tempResistanceTuples) / sizeof
 /*
  *	Public Function Implementations
  */
-WaterTemperature::WaterTemperature(adc_oneshot_unit_handle_t* adc) : PassiveSensor(adc) {}
+WaterTemperature::WaterTemperature(adc_oneshot_unit_handle_t* adc) : PassiveSensor(GPIO_NUM_6, ADC_CHANNEL_5, adc) {}
 
 int WaterTemperature::get()
 {

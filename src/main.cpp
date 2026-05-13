@@ -4,6 +4,8 @@
 #include "Filesystem.hpp"
 #include "Core.hpp"
 #include "State/Registration.hpp"
+#include "Event.hpp"
+#include "State/Operation.hpp"
 
 // espidf includes
 #include <freertos/FreeRTOS.h>
@@ -19,6 +21,8 @@ constexpr auto TAG = "main";
 static Core* core = nullptr;
 
 static QueueHandle_t canQueueHandle = xQueueCreate(10, sizeof(Can::Frame));
+
+static QueueHandle_t mainEventQueueHandle = xQueueCreate(20, sizeof(Event));
 
 static std::shared_ptr<State> currentState;
 
@@ -37,12 +41,50 @@ static void canRxTask(void* param)
 	}
 }
 
+static void mainEventTask(void* param)
+{
+	Event event;
+	while (true) {
+		if (xQueueReceive(mainEventQueueHandle, &event, portMAX_DELAY) != pdPASS) {
+			continue;
+		}
+
+		// Act depending on the event
+		switch (event.type) {
+			case Event::REGISTRATION_FINISHED:
+			{
+				currentState = std::make_shared<Operation>();
+				currentState->enter();
+			} break;
+			default: ;
+		}
+	}
+}
+
 /*
  *	main function
  */
+#include "Driver/KLine.hpp"
 extern "C" void app_main(void)
 {
 	vTaskDelay(pdMS_TO_TICKS(500));
+
+	KLine k;
+
+	while (true) {
+		vTaskDelay(pdMS_TO_TICKS(2000));
+
+		ESP_LOGI(TAG, "Reading ECU ID");
+		k.readEcuId();
+
+		vTaskDelay(pdMS_TO_TICKS(2000));
+
+		ESP_LOGI(TAG, "Reading PID");
+		k.readPid(PID::COOLANT_V);
+
+		ESP_LOGI("", "");
+	}
+
 
 	ESP_LOGI(TAG, "--- --- --- --- --- --- ---");
 	ESP_LOGI(TAG, "Startup");
@@ -50,11 +92,17 @@ extern "C" void app_main(void)
 	Filesystem* filesystem = Filesystem::get();
 
 	core = Core::get();
+	core->setMainEventQueue(mainEventQueueHandle);
 	core->getCan()->registerRxCbQueue(&canQueueHandle);
 
-	TaskHandle_t canRxTaskHandle;
-	if (xTaskCreate(canRxTask, "MainCanRxTask", 2048 * 4, NULL, 2, &canRxTaskHandle) != pdPASS) {
+	if (xTaskCreate(canRxTask, "MainCanRxTask", 2048, NULL, 2, NULL) != pdPASS) {
 		ESP_LOGE(TAG, "Failed to create CAN RX Task. Restarting...");
+		esp_restart();
+		vTaskDelay(pdMS_TO_TICKS(100000)); // Fallback
+	}
+
+	if (xTaskCreate(mainEventTask, "MainEventTask", 2048, NULL, 2, NULL) != pdPASS) {
+		ESP_LOGE(TAG, "Failed to create main event task");
 		esp_restart();
 		vTaskDelay(pdMS_TO_TICKS(100000)); // Fallback
 	}

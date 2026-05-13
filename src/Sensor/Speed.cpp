@@ -17,7 +17,10 @@ constexpr float MPH_TO_KMH = 1.60934;
 /*
  *	Public Function Implementations
  */
-Speed::Speed() : ActiveSensor(GPIO_INTR_POSEDGE) {}
+Speed::Speed() : ActiveSensor(GPIO_NUM_10, GPIO_INTR_POSEDGE)
+{
+	gpio_set_pull_mode(gpio_, GPIO_PULLUP_ONLY);
+}
 
 int Speed::get()
 {
@@ -36,7 +39,7 @@ int Speed::get()
 	return kmh_;
 }
 
-void Speed::isr()
+void Speed::cb()
 {
 	lastFallingEdgeTime_ = fallingEdgeTime_;
 	fallingEdgeTime_ = esp_timer_get_time();

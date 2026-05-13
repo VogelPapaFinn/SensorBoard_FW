@@ -6,7 +6,7 @@
 class ActiveSensor
 {
 public:
-	ActiveSensor(const gpio_int_type_t& triggeringEdge);
+	ActiveSensor(gpio_num_t gpio, const gpio_int_type_t& triggeringEdge);
 
 	void enable();
 
@@ -17,7 +17,7 @@ public:
 	/*
 	 *	Public Callback functions
 	 */
-	virtual void isr();
+	virtual void cb();
 
 protected:
 	/*

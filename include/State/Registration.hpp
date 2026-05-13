@@ -24,7 +24,7 @@ private:
 
 	void setScreen();
 
-	void wakeUp();
+	void wakeUpAllDisplays();
 
 	/*
 	 *	Private Variables
