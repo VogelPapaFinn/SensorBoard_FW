@@ -1,139 +1,160 @@
 <!DOCTYPE html>
-
-<html lang="en">
+<html lang="de" data-theme="dark">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="light dark">
-    <title>Preview • Pico CSS</title>
-    <meta name="description" content="A pure HTML example, without dependencies.">
+    <title>ESP32 Oszilloskop</title>
 
-    <!-- Pico.css -->
+    <!-- Pico CSS -->
     <link rel="stylesheet" href="pico.min.css">
-    <link rel="stylesheet" href="widgets/navbar.css">
-    <link rel="stylesheet" href="widgets/display-overview.css">
-    <link rel="stylesheet" href="style.css">
+    <!-- Chart.js für das Oszilloskop -->
+    <script src="chart.js"></script>
+
+    <style>
+        /* Oszilloskop-Look: Schwarzer Hintergrund, leuchtende Farben */
+        canvas {
+            background-color: #111;
+            border-radius: 8px;
+        }
+        .controls {
+            margin-top: 1rem;
+        }
+        .active-badges span {
+            margin-right: 0.5rem;
+            font-size: 0.8rem;
+        }
+    </style>
 </head>
-
 <body>
-<!-- Load the navigation bar -->
-<div id="navbar"></div>
-<script src="widgets/navbar.js"></script>
+<main class="container">
+    <h2>Sensor-Verlauf</h2>
 
-<div id="body-content">
-    <h2>Connected Displays</h2>
+    <!-- Oszilloskop Bereich -->
+    <article>
+        <canvas id="sensorChart" height="100"></canvas>
+    </article>
 
-    <div class="grid">
-        <div id="display-overview-panel" class="grid"></div>
-    </div>
-</div>
+    <!-- Steuerungsbereich (Unten) -->
+    <article class="controls">
+        <!-- Pico CSS 'grid' platziert Elemente nebeneinander -->
+        <div class="grid">
+            <select id="sensor-select">
+                <option value="temperatur" data-color="#ff6384">Temperatur (°C)</option>
+                <option value="feuchtigkeit" data-color="#36a2eb">Luftfeuchtigkeit (%)</option>
+                <option value="licht" data-color="#cc65fe">Helligkeit (Lux)</option>
+            </select>
+            <button id="add-btn" onclick="addSensor()">+ Sensor hinzufügen</button>
+        </div>
+
+        <!-- Anzeige, welche Sensoren gerade aktiv sind -->
+        <div id="active-list" class="active-badges" style="margin-top: 1rem;">
+            <strong>Aktiv: </strong> <span id="badge-container">Keine</span>
+        </div>
+    </article>
+</main>
 
 <script>
-    var gateway = `ws://${window.location.hostname}/ws`;
-    var websocket;
-
-    function initWebSocket() {
-        console.log("initWebSocket");
-        websocket = new WebSocket(gateway);
-        websocket.onmessage = onMessage;
-        websocket.onopen = onOpen
-    }
-
-    async function onMessage(event) {
-        var data = JSON.parse(event.data);
-        console.log(data);
-
-        switch(data.type) {
-            case "DISPLAY_STATI":
-                var htmlDisplays = document.getElementById("display-overview-panel").children;
-                var jsonDisplays = data.displays;
-
-                // Iterate through all json displays
-                for(let i = 0; i < jsonDisplays.length; i++) {
-                    // Then iterate through all html displays
-                    let htmlDisplay = null
-                    let jsonDisplay = jsonDisplays[i]
-                    for(let j = 0; j < htmlDisplays.length; j++) {
-                        // Does the UUID match?
-                        console.log(htmlDisplays[j].querySelector("#hw-uuid").innerHTML);
-                        console.log(sonDisplay.uuid);
-                        if(htmlDisplays[j].querySelector("#hw-uuid").innerHTML == jsonDisplay.uuid) {
-                            htmlDisplay = htmlDisplays[j]
-                            break;
-                        }
-                    }
-
-                    // Do we need to create a new entry?
-                    if (htmlDisplay == null) {
-                        await fetch('widgets/display-overview.html')
-                        .then(response => response.text())
-                        .then(text => {
-                            // Add the child
-                            let displayPanel = document.getElementById('display-overview-panel');
-                            displayPanel.innerHTML += text;
-
-                            // Then find it
-                            for(let l = 0; l < displayPanel.children.length; l++) {
-                                if(displayPanel.children[l].id == "display-div") {
-                                    // Alter its ID
-                                    displayPanel.children[l].id == "display" + l.toString()  + "-div";
-
-                                    // Save it
-                                    htmlDisplay = displayPanel.children[l];
-
-                                    // Connect to the restart button
-                                    let btn = htmlDisplay.querySelector("#restart-button")
-                                    btn.addEventListener('click', (event) => {
-                                        try {
-                                            // Alter the label
-                                            htmlDisplay.querySelector("#connected").innerHTML = "Restarting"
-                                            htmlDisplay.querySelector("#connected").style.color = "#FFBF00";
-
-                                            // Request the restart
-                                            fetch('/api/post/restart_display', {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({ id: htmlDisplay.querySelector("#com-id").innerHTML
-                                                })
-                                            });
-                                        } catch (error) {
-                                            console.error("Couldn't restart display: ", error);
-                                        }
-                                    })
-
-                                    break;
-                                }
-                            }
-                        });
-                    }
-
-                    // Update its values
-                    htmlDisplay.querySelector("#connected").innerHTML = jsonDisplay.connected == true ? "Connected" : "Disconnected";
-                    htmlDisplay.querySelector("#connected").style.color = jsonDisplay.connected == true ? "#008000" : "#F54927";
-                    if(jsonDisplay.firmware != null) {
-                        htmlDisplay.querySelector("#firmware").innerHTML = jsonDisplay.firmware;
-                    } else {
-                        htmlDisplay.querySelector("#firmware").innerHTML = "UNKNOWN";
-                    }
-                    if(jsonDisplay.uuid != null) {
-                        htmlDisplay.querySelector("#hw-uuid").innerHTML = jsonDisplay.uuid;
-                    }
-                    htmlDisplay.querySelector("#com-id").innerHTML = jsonDisplay.com_id;
-                    if(jsonDisplay.wifi != null) {
-                        htmlDisplay.querySelector("#wifi").innerHTML = jsonDisplay.wifi;
-                    }
-                }
-                break;
+    // --- Chart Initialisierung ---
+    const ctx = document.getElementById('sensorChart').getContext('2d');
+    const chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [], // Zeitstempel auf der X-Achse
+            datasets: [] // Hier landen die Linien der ausgewählten Sensoren
+        },
+        options: {
+            responsive: true,
+            animation: { duration: 0 }, // Animation aus für direkten Oszilloskop-Effekt
+            scales: {
+                x: { display: true, title: { display: true, text: 'Zeit' } },
+                y: { display: true }
+            },
+            elements: {
+                line: { tension: 0.4, borderWidth: 2 }, // Leicht geschwungene Linien
+                point: { radius: 0 } // Punkte ausblenden für reinen Linien-Look
+            }
         }
+    });
+
+    const activeSensors = new Map(); // Speichert aktive Sensoren (ID -> Name)
+    const MAX_DATA_POINTS = 30; // Wie viele Punkte auf dem Oszilloskop bleiben
+
+    // --- Sensor hinzufügen ---
+    function addSensor() {
+        const select = document.getElementById('sensor-select');
+        const option = select.options[select.selectedIndex];
+        const sensorId = option.value;
+        const sensorName = option.text;
+        const color = option.getAttribute('data-color');
+
+        if (activeSensors.has(sensorId)) {
+            alert("Sensor ist bereits aktiv!");
+            return;
+        }
+
+        // Zum Chart als neues Dataset hinzufügen
+        chart.data.datasets.push({
+            label: sensorName,
+            id: sensorId,
+            borderColor: color,
+            data: []
+        });
+        chart.update();
+
+        // In die Liste aufnehmen und UI aktualisieren
+        activeSensors.set(sensorId, sensorName);
+        updateActiveBadges();
     }
 
-    function onOpen() {
-        // Send a request on startup to get the initial data
-        fetch('/api/get/initial_data');
+    function updateActiveBadges() {
+        const container = document.getElementById('badge-container');
+        if (activeSensors.size === 0) {
+            container.innerText = "Keine";
+            return;
+        }
+        container.innerHTML = '';
+        activeSensors.forEach((name, id) => {
+            container.innerHTML += `<kbd>${name}</kbd> `; // <kbd> für Badge-Look in Pico
+        });
     }
 
-    window.addEventListener('load', initWebSocket);
+    // --- Daten vom ESP32 abrufen (Loop) ---
+    setInterval(async () => {
+        if (activeSensors.size === 0) return; // Nichts tun, wenn kein Sensor aktiv
+
+        // Aktuelle Zeit für die X-Achse
+        const now = new Date();
+        const timeString = `${now.getHours()}:${now.getMinutes()}:${now.getSeconds()}`;
+        chart.data.labels.push(timeString);
+
+        // Alte X-Achsen-Werte abschneiden (Oszilloskop wandert nach links)
+        if (chart.data.labels.length > MAX_DATA_POINTS) {
+            chart.data.labels.shift();
+        }
+
+        // Alle aktiven Sensoren parallel abfragen
+        for (let dataset of chart.data.datasets) {
+            try {
+                // ECHTE ESP32 ABFRAGE:
+                // const response = await fetch(`/api/read?sensor=${dataset.id}`);
+                // const value = parseFloat(await response.text());
+
+                // ZUR DEMONSTRATION (Bitte für den echten ESP32 durch die zwei Zeilen oben ersetzen):
+                const value = Math.random() * 20 + 20;
+
+                dataset.data.push(value);
+
+                // Alte Y-Werte abschneiden
+                if (dataset.data.length > MAX_DATA_POINTS) {
+                    dataset.data.shift();
+                }
+            } catch (e) {
+                console.error("Fehler beim Abrufen von " + dataset.id, e);
+            }
+        }
+
+        chart.update();
+    }, 1000); // Jede Sekunde aktualisieren
 </script>
-
 </body>
 </html>

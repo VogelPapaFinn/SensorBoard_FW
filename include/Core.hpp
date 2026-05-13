@@ -2,6 +2,7 @@
 
 // Project includes
 #include "Can.hpp"
+#include "Config.hpp"
 #include "Driver/Display.hpp"
 
 // espidf includes
@@ -29,6 +30,10 @@ public:
 	std::vector<Display>* getDisplays();
 
 	adc_oneshot_unit_handle_t* getAdc();
+
+	ArduinoJson::JsonDocument* getConfig() const;
+
+	void saveConfig() const;
 
 	/*
 	 *	CAN related functions
@@ -60,4 +65,10 @@ private:
 	};
 
 	adc_oneshot_unit_handle_t adc1Handle_;
+
+	Filesystem* filesystem_ = nullptr;
+
+	Config* config_ = nullptr;
+
+	ArduinoJson::JsonDocument* jsonConfig_ = nullptr;
 };
