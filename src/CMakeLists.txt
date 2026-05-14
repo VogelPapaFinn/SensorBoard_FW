@@ -7,7 +7,8 @@ set(FILES
         # Drivers
         "Driver/Display.cpp"
         "Driver/KLine.cpp"
-        "Driver/HostWifi.cpp"
+        "Driver/WifiHost.cpp"
+        "Driver/WifiJoin.cpp"
 
         # Core
         "Core.cpp"

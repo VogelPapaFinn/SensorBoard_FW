@@ -1,24 +1,25 @@
-#include "Driver/HostWifi.hpp"
+#include "Driver/WifiHost.hpp"
 
 // espidf includes
-#include "nvs_flash.h"
-#include "esp_netif.h"
 #include "esp_event.h"
+#include "esp_netif.h"
 #include "esp_wifi.h"
+#include "nvs_flash.h"
 
 /*
  *	constexpr
  */
-constexpr auto TAG = "HostWifi";
+constexpr auto TAG = "WifiHost";
 
-constexpr auto JSON_HOST_WIFI = "HostWifi";
+constexpr auto JSON_HOST_WIFI = "WifiHost";
 constexpr auto JSON_SSID = "ssid";
 constexpr auto JSON_PASSWORD = "password";
 
 /*
  *	Public Function Implementations
  */
-HostWifi::HostWifi()
+WifiHost::WifiHost() :
+	wifiConfig_()
 {
 	core_ = Core::get();
 	config_ = core_->getConfig();
@@ -38,12 +39,12 @@ HostWifi::HostWifi()
 	}
 }
 
-HostWifi::~HostWifi()
+WifiHost::~WifiHost()
 {
 	stop();
 }
 
-bool HostWifi::start()
+bool WifiHost::start()
 {
 	if (active_) {
 		return false;
@@ -85,17 +86,17 @@ bool HostWifi::start()
 		return false;
 	}
 
-	wifiConfig_ = (wifi_config_t){
-		.ap = {
-			.ssid_len = static_cast<uint8_t>(ssid_.size()),
-			.channel = 1,
-			.authmode = WIFI_AUTH_WPA2_PSK,
-			.max_connection = 4
-		}
-	};
+	if (esp_wifi_init(&wifiInitConfig_) != ESP_OK) {
+		ESP_LOGE(TAG, "Couldn't initialize Wifi");
+		return false;
+	}
+
+	wifiConfig_.ap.ssid_len = static_cast<uint8_t>(ssid_.size());
+	wifiConfig_.ap.channel = 1;
+	wifiConfig_.ap.authmode = WIFI_AUTH_WPA2_PSK;
+	wifiConfig_.ap.max_connection = 4;
 	strlcpy((char*)wifiConfig_.ap.ssid, ssid_.c_str(), sizeof(wifiConfig_.ap.ssid));
 	strlcpy((char*)wifiConfig_.ap.password, password_.c_str(), sizeof(wifiConfig_.ap.password));
-
 
 	if (esp_wifi_set_mode(WIFI_MODE_AP) != ESP_OK) {
 		ESP_LOGE(TAG, "Couldn't set Wifi AP mode.");
@@ -116,7 +117,7 @@ bool HostWifi::start()
 	return true;
 }
 
-void HostWifi::stop()
+void WifiHost::stop()
 {
 	if (!active_) {
 		return;
@@ -127,8 +128,9 @@ void HostWifi::stop()
 	esp_netif_destroy_default_wifi(espNetif_);
 	espNetif_ = nullptr;
 
+	esp_wifi_deinit();
+
 	esp_event_loop_delete_default();
 	esp_netif_deinit();
 	nvs_flash_deinit();
-
 }

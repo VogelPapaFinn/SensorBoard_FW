@@ -7,12 +7,12 @@
 // espidf includes
 #include "esp_wifi.h"
 
-class HostWifi
+class WifiHost
 {
 public:
-	HostWifi();
+	WifiHost();
 
-	~HostWifi();
+	~WifiHost();
 
 	bool start();
 

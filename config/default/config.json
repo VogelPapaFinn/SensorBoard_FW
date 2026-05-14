@@ -1,10 +1,10 @@
 {
-  "HostWifi": {
+  "WifiHost": {
     "ssid": "MX5-HybridDash Sensorboard",
     "password": "MX5-HybridDashV2"
   },
 
-  "JoinWifi": {
+  "WifiJoin": {
     "ssid": "",
     "password": ""
   }

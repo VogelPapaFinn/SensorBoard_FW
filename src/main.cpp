@@ -64,25 +64,17 @@ static void mainEventTask(void* param)
 /*
  *	main function
  */
-#include "Driver/KLine.hpp"
+#include "Driver/WifiJoin.hpp"
 extern "C" void app_main(void)
 {
 	vTaskDelay(pdMS_TO_TICKS(500));
 
-	KLine k;
+	WifiJoin w;
+	w.connect();
 
 	while (true) {
-		vTaskDelay(pdMS_TO_TICKS(2000));
-
-		ESP_LOGI(TAG, "Reading ECU ID");
-		k.readEcuId();
 
 		vTaskDelay(pdMS_TO_TICKS(2000));
-
-		ESP_LOGI(TAG, "Reading PID");
-		k.readPid(PID::COOLANT_V);
-
-		ESP_LOGI("", "");
 	}
 
 
