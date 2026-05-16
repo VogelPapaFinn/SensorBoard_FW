@@ -1,5 +1,8 @@
 #pragma once
 
+// C++ includes
+#include <functional>
+
 // Project includes
 #include "Config.hpp"
 #include "Core.hpp"
@@ -13,6 +16,8 @@ public:
 	WifiJoin();
 
 	~WifiJoin();
+
+	void callOnConnect(const std::function<void()>& cb);
 
 	bool connect();
 
@@ -36,6 +41,8 @@ private:
 	esp_netif_t* espNetif_ = nullptr;
 	wifi_init_config_t wifiInitConfig_ = WIFI_INIT_CONFIG_DEFAULT();
 	wifi_config_t wifiConfig_;
+
+	std::function<void()> onConnectedCb_;
 
 	esp_event_handler_instance_t wifiEventHandlerInstance_;
 	esp_event_handler_instance_t ipEventHandlerInstance_;

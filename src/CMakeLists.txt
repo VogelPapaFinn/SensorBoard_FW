@@ -30,10 +30,13 @@ set(FILES
         "Sensor/Rpm.cpp"
         "Sensor/LeftIndicator.cpp"
         "Sensor/RightIndicator.cpp"
+
+        # WebInterface
+        "WebInterface/WebInterface.cpp"
 )
 
 idf_component_register(SRCS ${FILES}
-        PRIV_REQUIRES src driver spi_flash esp_psram esp_adc esp_wifi esp_http_server nvs_flash can esp_timer app_update esp_http_client esp_https_ota mbedtls esp-tls ArduinoJson filesystem
+        REQUIRES src driver spi_flash esp_psram esp_adc esp_wifi esp_http_server nvs_flash can esp_timer app_update esp_http_client esp_https_ota mbedtls esp-tls ArduinoJson filesystem
         INCLUDE_DIRS "../include" "."
         EMBED_TXTFILES "" # For Files
         EMBED_FILES "") # For images

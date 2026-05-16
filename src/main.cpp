@@ -64,16 +64,14 @@ static void mainEventTask(void* param)
 /*
  *	main function
  */
-#include "Driver/WifiJoin.hpp"
+#include "WebInterface/WebInterface.hpp"
 extern "C" void app_main(void)
 {
 	vTaskDelay(pdMS_TO_TICKS(500));
 
-	WifiJoin w;
-	w.connect();
+	WebInterface w;
 
 	while (true) {
-
 		vTaskDelay(pdMS_TO_TICKS(2000));
 	}
 

@@ -127,6 +127,11 @@ WifiJoin::~WifiJoin()
 	disconnect();
 }
 
+void WifiJoin::callOnConnect(const std::function<void()>& cb)
+{
+	onConnectedCb_ = cb;
+}
+
 bool WifiJoin::connect()
 {
 	if (active_) {
@@ -251,6 +256,10 @@ void WifiJoin::ipEventHandler(const esp_event_base_t p_eventBase, const int32_t 
 		connected_ = true;
 
 		ESP_LOGI(TAG, "Got IP assigned: %d.%d.%d.%d", IP2STR(&event->ip_info.ip));
+
+		if (onConnectedCb_) {
+			onConnectedCb_();
+		}
 
 		// Initialize the SNTP for time synchronization
 		if (xTaskCreate(staticSynchronizeTimeTask, "synchronizeTimeTask", 2048 * 4, nullptr, 0,

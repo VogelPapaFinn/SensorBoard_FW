@@ -1,4 +1,6 @@
 {
+  "OverwriteWifiMode": "WifiHost",
+
   "WifiHost": {
     "ssid": "MX5-HybridDash Sensorboard",
     "password": "MX5-HybridDashV2"
