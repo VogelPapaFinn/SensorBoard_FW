@@ -116,19 +116,89 @@ static esp_err_t fileHandler(httpd_req_t* p_reqst)
 	return ESP_OK;
 }
 
-static esp_err_t staticWebsocketHandler(httpd_req_t* p_reqst)
+struct WsContext
 {
-	if (p_reqst->method == HTTP_GET) {
-		ESP_LOGI(TAG, "Websocket handshake successful");
-		return ESP_OK;
+	WebInterface* web = nullptr;
+	int clientFd = 0;
+};
+static void staticWebsocketCrashedHandler(void *ctx)
+{
+	if (ctx == nullptr) {
+		return;
 	}
 
+	const WsContext* wsContext = static_cast<WsContext*>(ctx);
+	wsContext->web->websocketCrashed(wsContext->clientFd);
+
+	delete wsContext;
+}
+
+static esp_err_t staticWebsocketHandler(httpd_req_t* p_reqst)
+{
 	if (p_reqst->user_ctx == nullptr) {
 		return ESP_FAIL;
 	}
 
 	const auto web = static_cast<WebInterface*>(p_reqst->user_ctx);
+
+	if (p_reqst->method == HTTP_GET) {
+		ESP_LOGI(TAG, "Websocket handshake successful");
+
+		WsContext* ctx = new WsContext();
+		ctx->web = web;
+		ctx->clientFd = httpd_req_to_sockfd(p_reqst);;
+
+		p_reqst->sess_ctx = (void*)ctx;
+		p_reqst->free_ctx = staticWebsocketCrashedHandler;
+		return ESP_OK;
+	}
+
 	return web->websocketHandler(p_reqst);
+}
+
+static void updateSensorsTask(void* param)
+{
+	if (param == nullptr) {
+		vTaskDelete(nullptr);
+	}
+
+	WebInterface* web = static_cast<WebInterface*>(param);
+	auto mutex = web->getSensorsMutex();
+
+	while (true) {
+		xSemaphoreTakeRecursive(mutex, portMAX_DELAY);
+
+		auto trackedSensorsMap = web->getTrackedSensors();
+		for (auto& fdPair : trackedSensorsMap) {
+			auto& trackedSensorsVector = fdPair.second;
+
+			// JSON Header
+			std::stringstream output;
+			output << "{";
+			output << "\"type\":\"update-sensors\",";
+			output << "\"sensors\":" << "[";
+
+			// Parse all sensors to JSON
+			for (auto& sensorId : trackedSensorsVector) {
+				output << ECU_SENSORS[sensorId].toJson();
+
+				// Add ',' if it's not the last sensor we add
+				if (sensorId != trackedSensorsVector.at(trackedSensorsVector.size() - 1)) {
+					output << ",";
+				}
+			}
+
+			// JSON Ending
+			output << "]";
+			output << "}";
+
+			web->send(fdPair.first, output.str());
+		}
+
+		xSemaphoreGiveRecursive(mutex);
+
+		vTaskDelay(pdMS_TO_TICKS(500));
+	}
 }
 
 /*
@@ -136,6 +206,8 @@ static esp_err_t staticWebsocketHandler(httpd_req_t* p_reqst)
  */
 WebInterface::WebInterface(const bool initiateWifiDriver)
 {
+	sensorsMutex_ = xSemaphoreCreateMutex();
+
 	core_ = Core::get();
 	config_ = core_->getConfig();
 	if (config_->isNull()) {
@@ -166,6 +238,34 @@ WebInterface::WebInterface(const bool initiateWifiDriver)
 	onConnectedToWifi();
 }
 
+void WebInterface::send(const int clientFD, const std::string& data) const
+{
+	if (!initialized_) { return; }
+
+	if (httpd_ws_get_fd_info(httpdHandle_, clientFD) != HTTPD_WS_CLIENT_WEBSOCKET) {
+		ESP_LOGW(TAG, "Cant send to Frontend. Server Handle or ClientFD is invalid");
+		return;
+	}
+
+	httpd_ws_frame_t frame = {};
+	frame.payload = (uint8_t*)data.c_str();
+	frame.len = data.length();
+	frame.type = HTTPD_WS_TYPE_TEXT;
+	frame.final = true;
+
+	httpd_ws_send_frame_async(httpdHandle_, clientFD, &frame);
+}
+
+std::unordered_map<int, std::vector<uint16_t>>& WebInterface::getTrackedSensors()
+{
+	return trackedSensors_;
+}
+
+SemaphoreHandle_t& WebInterface::getSensorsMutex()
+{
+	return sensorsMutex_;
+}
+
 /*
  *	Private ISRs
  */
@@ -186,12 +286,84 @@ esp_err_t WebInterface::websocketHandler(httpd_req_t* p_reqst)
 	}
 	std::string dataStr = data;
 
-	// Act depending on the frame data
+	// DEBUG LOGGING
+	ESP_LOGI(TAG, "Received string from Frontend: %s", data);
+
+	/*
+	 * Act depending on the frame data
+	 */
 	if (dataStr == "fetch-sensors") {
 		sendAllSensors(clientFD);
+		return ESP_OK;
+	}
+
+	if (dataStr.contains("add-sensor")) {
+		const std::string sensorId = dataStr.substr(dataStr.find(':') + 1);
+
+		xSemaphoreTakeRecursive(sensorsMutex_, portMAX_DELAY);
+		trackedSensors_[clientFD].push_back(std::stoi(sensorId));
+		xSemaphoreGiveRecursive(sensorsMutex_);
+
+		if (updateSensorsDataTask_ != nullptr) {
+			return ESP_OK;
+		}
+
+		if (xTaskCreate(updateSensorsTask, "WebInterfaceUpdateSensorsTask", 4096, this, 2,
+		                &updateSensorsDataTask_) != pdPASS) {
+			updateSensorsDataTask_ = nullptr;
+			ESP_LOGW(TAG, "Failed to start task which updates the sensor values");
+			return ESP_OK;
+		}
+
+		return ESP_OK;
+	}
+
+	if (dataStr.contains("remove-sensor")) {
+		const std::string sensorIdStr = dataStr.substr(dataStr.find(':') + 1);
+		const int sensorId = std::stoi(sensorIdStr);
+
+		auto& sensorVector = trackedSensors_[clientFD];
+		for (int i = 0; i < sensorVector.size(); i++) {
+			if (sensorVector.at(i) == sensorId) {
+				xSemaphoreTakeRecursive(sensorsMutex_, portMAX_DELAY);
+				sensorVector.erase(sensorVector.begin() + i);
+				xSemaphoreGiveRecursive(sensorsMutex_);
+				break;
+			}
+		}
+
+		if (updateSensorsDataTask_ == nullptr) {
+			return ESP_OK;
+		}
+
+		vTaskDelete(updateSensorsDataTask_);
+		updateSensorsDataTask_ = nullptr;
+
+		return ESP_OK;
 	}
 
 	return ESP_OK;
+}
+
+void WebInterface::websocketCrashed(const int fd)
+{
+	if (!trackedSensors_.contains(fd)) {
+		return;
+	}
+
+	trackedSensors_.erase(fd);
+
+	if (!trackedSensors_.empty()) {
+		return;
+	}
+
+
+	if (updateSensorsDataTask_ == nullptr) {
+		return;
+	}
+
+	vTaskDelete(updateSensorsDataTask_);
+	updateSensorsDataTask_ = nullptr;
 }
 
 /*
@@ -230,25 +402,7 @@ void WebInterface::onConnectedToWifi()
 	initialized_ = true;
 }
 
-void WebInterface::send(const int clientFD, const std::string& data) const
-{
-	if (!initialized_) { return; }
-
-	if (httpd_ws_get_fd_info(httpdHandle_, clientFD) != HTTPD_WS_CLIENT_WEBSOCKET) {
-		ESP_LOGW(TAG, "Cant send to Frontend. Server Handle or ClientFD is invalid");
-		return;
-	}
-
-	httpd_ws_frame_t frame = {};
-	frame.payload = (uint8_t*)data.c_str();
-	frame.len = data.length();
-	frame.type = HTTPD_WS_TYPE_TEXT;
-	frame.final = true;
-
-	httpd_ws_send_frame_async(httpdHandle_, clientFD, &frame);
-}
-
-void WebInterface::sendAllSensors(int clientFD) const
+void WebInterface::sendAllSensors(const int clientFD) const
 {
 	std::stringstream output;
 	output << "{";

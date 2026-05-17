@@ -7,9 +7,12 @@
 
     <link rel="stylesheet" href="css/pico.min.css">
     <link rel="stylesheet" href="css/indexStyle.css">
+    <link rel="stylesheet" href="css/oscilloscopes.css">
 
     <script src="js/smoothie.js"></script>
     <script src="js/websocket.js"></script>
+    <script src="js/fetch-sensors.js"></script>
+    <script src="js/oscilloscopes.js"></script>
 </head>
 <body>
 <main class="container">
@@ -36,10 +39,52 @@
                 <button class="delete-btn outline secondary" style="width: auto; margin: 0; padding: 2px 8px;">✕
                 </button>
             </div>
-            <p>Statische Kachel ohne Chart</p>
+            <div class="chart-wrapper">
+                <canvas id="canvas"></canvas>
+            </div>
         </article>
 
     </div>
+
+    <script>
+        const addSensorBtn = document.getElementById('add-sensor-btn');
+        const sensorSelect = document.getElementById('sensor-select');
+        const gridContainer = document.getElementById('grid-container');
+
+        addSensorBtn.addEventListener('click', () => {
+            const selectedOption = sensorSelect.options[sensorSelect.selectedIndex];
+            if (!selectedOption || selectedOption.value === "") {
+                return;
+            }
+
+            const sensorName = selectedOption.text;
+            const sensorId = selectedOption.value;
+
+            const newTile = document.createElement('article');
+            newTile.className = 'tile-2x2';
+
+            newTile.innerHTML = `
+                <div id="${sensorId}" class="tile-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <header style="margin: 0; border: none; padding: 0;">${sensorName}</header>
+                    <button class="delete-btn outline secondary" style="width: auto; margin: 0; padding: 2px 8px;">✕</button>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas class="small-smoothie-chart" width="100%" height="100%"></canvas>
+                </div>
+            `;
+
+            newTile.querySelector('.delete-btn').addEventListener('click', () => {
+                websocket.send('remove-sensor:' + sensorId);
+                newTile.remove();
+            });
+
+            gridContainer.appendChild(newTile);
+
+            initSmallScope(newTile.querySelector('.small-smoothie-chart'))
+
+            websocket.send('add-sensor:' + sensorId);
+        });
+    </script>
 </main>
 </body>
 </html>

@@ -12,17 +12,23 @@ class WebInterface
 public:
 	WebInterface(bool initiateWifiDriver = true);
 
+	void send(int clientFD, const std::string& data) const;
+
+	std::unordered_map<int, std::vector<uint16_t>>& getTrackedSensors();
+
+	SemaphoreHandle_t& getSensorsMutex();
+
 	/*
 	 *	Private ISRs
 	 */
 	esp_err_t websocketHandler(httpd_req_t* p_reqst);
+
+	void websocketCrashed(const int fd);
 private:
 	/*
 	 *	Private Functions
 	 */
 	 void onConnectedToWifi();
-
-	void send(int clientFD, const std::string& data) const;
 
 	void sendAllSensors(int clientFD) const;
 
@@ -42,4 +48,8 @@ private:
 
 	httpd_config_t httpdConfig_ = HTTPD_DEFAULT_CONFIG();
 	httpd_handle_t httpdHandle_;
+
+	SemaphoreHandle_t sensorsMutex_;
+	std::unordered_map<int, std::vector<uint16_t>> trackedSensors_;
+	TaskHandle_t updateSensorsDataTask_;
 };

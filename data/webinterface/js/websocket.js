@@ -7,7 +7,7 @@ function initWebSocket() {
     websocket = new WebSocket(gateway);
     websocket.onopen = (event) => {
         console.log("Websocket connection established")
-        websocket.send("fetch-sensors");
+        requestFetchSensors()
     }
 
     websocket.onmessage = (event) => {
@@ -19,18 +19,7 @@ function initWebSocket() {
         }
 
         if(json.type === "fetch-sensors") {
-            let select = document.getElementById("sensor-select");
-
-            for(const sensor of json.sensors) {
-                let opt = document.createElement("option")
-                opt.value = sensor.id
-                if(sensor.unit !== "") {
-                    opt.innerHTML = sensor.name + " (" + sensor.unit + ")"
-                } else {
-                    opt.innerHTML = sensor.name
-                }
-                select.appendChild(opt)
-            }
+            responseFetchSensors(json)
         }
 
     };
