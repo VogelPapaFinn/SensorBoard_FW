@@ -55,7 +55,8 @@ static void mainEventTask(void* param)
 			{
 				currentState = std::make_shared<Operation>();
 				currentState->enter();
-			} break;
+			}
+			break;
 			default: ;
 		}
 	}
@@ -65,21 +66,24 @@ static void mainEventTask(void* param)
  *	main function
  */
 #include "WebInterface/WebInterface.hpp"
+
 extern "C" void app_main(void)
 {
-	vTaskDelay(pdMS_TO_TICKS(500));
+	vTaskDelay(pdMS_TO_TICKS(100));
 
-	WebInterface w;
-
-	while (true) {
-		vTaskDelay(pdMS_TO_TICKS(2000));
-	}
+	// //WebInterface w;
+	// Display d1(GPIO_DISPLAY1, CAN_MASTER_ID + 1);
+	// // Display d2(GPIO_DISPLAY2, CAN_MASTER_ID + 2);
+	// // Display d3(GPIO_DISPLAY3, CAN_MASTER_ID + 3);
+	// d1.turnOn();
+	//
+	// while (true) {
+	// 	vTaskDelay(pdMS_TO_TICKS(2000));
+	// }
 
 
 	ESP_LOGI(TAG, "--- --- --- --- --- --- ---");
 	ESP_LOGI(TAG, "Startup");
-
-	Filesystem* filesystem = Filesystem::get();
 
 	core = Core::get();
 	core->setMainEventQueue(mainEventQueueHandle);

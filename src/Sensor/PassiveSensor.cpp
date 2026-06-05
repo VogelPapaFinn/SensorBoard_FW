@@ -8,6 +8,7 @@
  */
 constexpr auto TAG = "PassiveSensor";
 constexpr double VOLTAGE = 3.3;
+constexpr unsigned int ADC_SAMPLE_COUNT = 50;
 
 /*
  *	Public Function Implementations
@@ -49,13 +50,23 @@ void PassiveSensor::read()
 	}
 
 	int adcValue = 0;
+	unsigned int successfullReads = 0;
+	uint32_t adcValueSum = 0;
+	for (unsigned int i = 0; i < ADC_SAMPLE_COUNT; i++) {
+		if (adc_oneshot_read(*adc_, channel_, &adcValue) == ESP_OK) {
+			successfullReads++;
+			adcValueSum += adcValue;
+		} else {
+			ESP_LOGW(TAG, "Failed to read channel %d", channel_);
+		}
+	}
 
-	if (adc_oneshot_read(*adc_, channel_, &adcValue) != ESP_OK) {
-		ESP_LOGW(TAG, "Failed to read channel %d", channel_);
+	if (adcValueSum == 0) {
+		ESP_LOGW(TAG, "Failed to read any data from channel %d", channel_);
 		return;
 	}
 
-	if (adc_cali_raw_to_voltage(calibrationHandle_, adcValue, &voltage_) != ESP_OK) {
+	if (adc_cali_raw_to_voltage(calibrationHandle_, adcValueSum / successfullReads, &voltage_) != ESP_OK) {
 		voltage_ = 0;
 		ESP_LOGW(TAG, "Couldn't convert adc channel %d value to voltage", channel_);
 		return;

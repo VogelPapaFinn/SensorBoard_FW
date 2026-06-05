@@ -12,17 +12,18 @@ constexpr auto TAG = "RightIndicator";
  *	Public Function Implementations
  */
 RightIndicator::RightIndicator() :
-	ActiveSensor(GPIO_NUM_15, GPIO_INTR_ANYEDGE)
+	ActiveSensor(GPIO_NUM_7, GPIO_INTR_ANYEDGE)
 {
-	gpio_set_pull_mode(gpio_, GPIO_PULLDOWN_ONLY);
+	gpio_set_pull_mode(gpio_, GPIO_FLOATING);
 }
 
 int RightIndicator::get()
 {
-	return high_;
+	return active_;
 }
 
 void RightIndicator::cb()
 {
-	high_ = gpio_get_level(gpio_);
+	active_ = !static_cast<bool>(gpio_get_level(gpio_));
+	esp_rom_printf("RightIndicator: %d \n", active_);
 }

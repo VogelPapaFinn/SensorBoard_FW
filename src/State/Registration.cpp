@@ -13,10 +13,15 @@ Registration::Registration() :
 
 void Registration::enter()
 {
+	core_->getDisplays()->at(0).turnOn();
 }
 
 void Registration::handleCanFrame(const Can::Frame& frame)
 {
+	if (blocked) {
+		return;
+	}
+
 	if (frame.group != CanFrame::GROUP::CONFIGURATION) {
 		return;
 	}
@@ -114,11 +119,12 @@ void Registration::setId(const uint8_t& oldId, const uint8_t& newId)
 
 void Registration::nextDisplay()
 {
-	if (++currDisplay >= 1) {
+	if (++currDisplay >= 3) {
 		wakeUpAllDisplays();
 
 		Event event(Event::REGISTRATION_FINISHED);
 		xQueueSend(core_->getMainEventQueue(), &event, portMAX_DELAY);
+		blocked = true;
 
 		return;
 	}
@@ -128,13 +134,15 @@ void Registration::nextDisplay()
 
 void Registration::setScreen()
 {
+	static int screen = 0;
+
 	Can::Frame txFrame;
 	txFrame.sender = CAN_MASTER_ID;
 	txFrame.target = core_->getDisplays()->at(currDisplay).getCanId();
 	txFrame.group = CanFrame::GROUP::CONFIGURATION;
 	txFrame.function = CanFrame::CONFIGURATION::SET_SCREEN;
 	txFrame.dataLengthCode = 1;
-	txFrame.data[0] = 1;
+	txFrame.data[0] = currDisplay == 0 ? 1 : currDisplay == 1 ? 0 : 2; // RPM, Temp, Speed
 	txFrame.answer = false;
 
 	Core::get()->getCan()->queueFrame(txFrame);

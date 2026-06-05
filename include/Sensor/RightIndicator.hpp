@@ -19,5 +19,5 @@ private:
 	/*
 	 *	Private Variables
 	 */
-	bool high_ = false;
+	bool active_ = false;
 };

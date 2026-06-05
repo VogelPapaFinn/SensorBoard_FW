@@ -14,15 +14,16 @@ constexpr auto TAG = "LeftIndicator";
 LeftIndicator::LeftIndicator() :
 	ActiveSensor(GPIO_NUM_15, GPIO_INTR_ANYEDGE)
 {
-	gpio_set_pull_mode(gpio_, GPIO_PULLDOWN_ONLY);
+	gpio_set_pull_mode(gpio_, GPIO_FLOATING);
 }
 
 int LeftIndicator::get()
 {
-	return high_;
+	return active_;
 }
 
 void LeftIndicator::cb()
 {
-	high_ = gpio_get_level(gpio_);
+	active_ = !static_cast<bool>(gpio_get_level(gpio_));
+	esp_rom_printf("LeftIndicator: %d \n", active_);
 }

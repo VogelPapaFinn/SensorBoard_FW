@@ -36,4 +36,6 @@ protected:
 	 *	Private Variables
 	 */
 	TYPE type_ = UNKNOWN;
+
+	bool blocked = false;
 };

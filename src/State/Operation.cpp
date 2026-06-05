@@ -2,12 +2,12 @@
 
 // Project includes
 #include "Sensor/FuelLevel.hpp"
+#include "Sensor/LeftIndicator.hpp"
 #include "Sensor/OilPressure.hpp"
-#include "Sensor/WaterTemperature.hpp"
+#include "Sensor/RightIndicator.hpp"
 #include "Sensor/Rpm.hpp"
 #include "Sensor/Speed.hpp"
-#include "Sensor/LeftIndicator.hpp"
-#include "Sensor/RightIndicator.hpp"
+#include "Sensor/WaterTemperature.hpp"
 
 // espidf includes
 #include "esp_log.h"
@@ -116,7 +116,7 @@ void Operation::readPassiveSensorsTask() const
 	}
 }
 
-static bool b = false;
+// #include "esp_random.h"
 void Operation::broadcastSensorsTask() const
 {
 	while (true) {
@@ -125,24 +125,38 @@ void Operation::broadcastSensorsTask() const
 		frame.target = CAN_BROADCAST_ID;
 		frame.group = CanFrame::GROUP::SENSOR;
 		frame.function = CanFrame::SENSOR::BROADCAST_DATA;
-		frame.dataLengthCode = 7;
+		frame.dataLengthCode = 8;
 		frame.answer = false;
 
+		// Fuel Level, Oil Pressure, Water Temperature
 		for (uint8_t i = 0; i < passiveSensor_.size(); i++) {
 			frame.data[i] = passiveSensor_.at(i)->get();
 		}
-		for (uint8_t i = passiveSensor_.size(); i < passiveSensor_.size() + activeSensor_.size(); i++) {
-			frame.data[i] = activeSensor_.at(i - passiveSensor_.size())->get();
-		}
+		// frame.data[0] = static_cast<uint8_t>(esp_random() % 101);
 
-		frame.data[4] = rand() % 101;
-		if (b) {
-			b = false;
-		frame.data[6] = 1;
-		} else {
-			b = true;
-		frame.data[6] = 0;
-		}
+		// RPM
+		const auto& rpm = activeSensor_.at(0)->get();
+		frame.data[3] = rpm >> 8;
+		frame.data[4] = rpm & 0xFF;
+
+		// Speed
+		frame.data[5] = activeSensor_.at(1)->get();
+
+		// Left Indicator
+		frame.data[6] = activeSensor_.at(2)->get();
+
+		// Right Indicator
+		frame.data[7] = activeSensor_.at(3)->get();
+
+		// static bool b = false;
+		// if (b) {
+		// 	b = false;
+		// 	frame.data[1] = 1;
+		// }
+		// else {
+		// 	b = true;
+		// 	frame.data[1] = 0;
+		// }
 
 		core_->getCan()->queueFrame(frame);
 
