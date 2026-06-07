@@ -18,7 +18,7 @@
 constexpr auto TAG = "Operation";
 
 constexpr auto PASSIVE_SENSOR_POLL_HZ = 10;
-constexpr auto BROADCAST_SENSOR_DATA_HZ = 1;
+constexpr auto BROADCAST_SENSOR_DATA_HZ = 100;
 
 /*
  *	Private Static Task

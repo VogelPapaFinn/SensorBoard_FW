@@ -14,41 +14,58 @@ constexpr auto TAG = "Speed";
 
 constexpr float MPH_TO_KMH = 1.60934;
 
+constexpr uint16_t DEBOUNCE_TIME_US = 2000;
+
 /*
  *	Public Function Implementations
  */
 Speed::Speed() : ActiveSensor(GPIO_NUM_10, GPIO_INTR_POSEDGE)
 {
-	gpio_set_pull_mode(gpio_, GPIO_PULLUP_ONLY);
 }
 
 int Speed::get()
 {
-	int64_t time = 0;
-	if (lastFallingEdgeTime_ != 0) {
-		time = fallingEdgeTime_ - lastFallingEdgeTime_;
-		lastFallingEdgeTime_ = 0; // Reset the time of the last falling edge, to detect if the rpm signal was lost
+	/*
+	 * Check if the car is standing
+	 */
+	portENTER_CRITICAL_ISR(&mux_);
+	const int64_t timeSinceLastTrigger = esp_timer_get_time() - fallingEdgeTime_;
+	portEXIT_CRITICAL_ISR(&mux_);
+
+	// The car is standing still
+	const float secondsSinceLastTrigger = static_cast<float>(timeSinceLastTrigger) / 1000000.0f;
+	if (secondsSinceLastTrigger >= 0.5f) {
+		return 0;
 	}
 
+	/*
+	 * Calculate the current speed
+	 */
+	const int64_t time = fallingEdgeTime_ - lastFallingEdgeTime_;
 	const float seconds = static_cast<float>(time) / 1000000.0f;
 
-	hz_ = round(1.0 / seconds);
+	// Error detection
+	if (seconds <= 0) {
+		return 0;
+	}
 
-	calculateKmh();
+	hz_ = 1.0f / seconds;
+	const float mph = hz_ * 0.9f;
+	kmh_ = static_cast<int>(round(mph * MPH_TO_KMH));
 
 	return kmh_;
 }
 
 void Speed::cb()
 {
-	lastFallingEdgeTime_ = fallingEdgeTime_;
-	fallingEdgeTime_ = esp_timer_get_time();
-}
+	portENTER_CRITICAL_ISR(&mux_);
 
-/*
- *	Private Functions Implementations
- */
-void Speed::calculateKmh()
-{
-	kmh_ = static_cast<uint8_t>((hz_ / 2.0) * MPH_TO_KMH); // kmh
+	// Debouncing, allow a new trigger only after X us passed
+	const int64_t now = esp_timer_get_time();
+	if ((now - fallingEdgeTime_) > DEBOUNCE_TIME_US) {
+		lastFallingEdgeTime_ = fallingEdgeTime_;
+		fallingEdgeTime_ = now;
+	}
+
+	portEXIT_CRITICAL_ISR(&mux_);
 }

@@ -25,5 +25,4 @@ int RightIndicator::get()
 void RightIndicator::cb()
 {
 	active_ = !static_cast<bool>(gpio_get_level(gpio_));
-	esp_rom_printf("RightIndicator: %d \n", active_);
 }

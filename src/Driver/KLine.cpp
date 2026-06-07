@@ -9,8 +9,8 @@
 #include "Driver/EcuSensors.hpp"
 
 // espidf include
-#include "Driver/gpio.h"
-#include "Driver/uart.h"
+#include "driver/gpio.h"
+#include "driver/uart.h"
 #include "esp_log.h"
 
 /*

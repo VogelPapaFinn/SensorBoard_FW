@@ -3,6 +3,9 @@
 // Project includes
 #include "ActiveSensor.hpp"
 
+// espidf includes
+#include "freertos/FreeRTOS.h"
+
 class Speed : public ActiveSensor
 {
 public:
@@ -13,19 +16,15 @@ public:
 	/*
 	 *	Public Callback functions
 	 */
-	void cb() override;
+	IRAM_ATTR void cb() override;
 
 private:
 	/*
-	 *	Private Functions
-	 */
-	void calculateKmh();
-
-	/*
 	 *	Private Variables
 	 */
-	int64_t lastFallingEdgeTime_ = 0;
-	int64_t fallingEdgeTime_ = 0;
+	volatile int64_t lastFallingEdgeTime_ = 0;
+	volatile int64_t fallingEdgeTime_ = 0;
+	portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
 
 	double hz_ = 0.0;
 

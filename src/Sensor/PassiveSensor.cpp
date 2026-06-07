@@ -8,19 +8,17 @@
  */
 constexpr auto TAG = "PassiveSensor";
 constexpr double VOLTAGE = 3.3;
-constexpr unsigned int ADC_SAMPLE_COUNT = 50;
+constexpr unsigned int ADC_SAMPLE_COUNT = 10;
 
 /*
  *	Public Function Implementations
  */
-PassiveSensor::PassiveSensor(gpio_num_t gpio, adc_channel_t adcChannel, adc_oneshot_unit_handle_t* adc)
+PassiveSensor::PassiveSensor(gpio_num_t gpio, adc_channel_t adcChannel, adc_oneshot_unit_handle_t* adc, adc_unit_t unit)
 {
 	gpio_ = gpio;
 	channel_ = adcChannel;
 	adc_ = adc;
-
-	gpio_set_direction(gpio_, GPIO_MODE_INPUT);
-	gpio_set_pull_mode(gpio_, GPIO_PULLDOWN_ONLY);
+	unit_ = unit;
 
 	// Configure the channel
 	if (adc_oneshot_config_channel(*adc_, channel_, &channelConfig_) != ESP_OK) {
@@ -30,7 +28,7 @@ PassiveSensor::PassiveSensor(gpio_num_t gpio, adc_channel_t adcChannel, adc_ones
 
 	// Calibrate
 	const adc_cali_curve_fitting_config_t calibrationConfig = {
-		.unit_id = ADC_UNIT_2,
+		.unit_id = unit_,
 		.chan = channel_,
 		.atten = ADC_ATTEN_DB_12,
 		.bitwidth = ADC_BITWIDTH_DEFAULT,
@@ -61,7 +59,7 @@ void PassiveSensor::read()
 		}
 	}
 
-	if (adcValueSum == 0) {
+	if (successfullReads == 0) {
 		ESP_LOGW(TAG, "Failed to read any data from channel %d", channel_);
 		return;
 	}
@@ -84,9 +82,14 @@ void PassiveSensor::specificRead() {}
 
 double PassiveSensor::calcVoltageDividerR2(const int voltageMv, const int r1)
 {
-	const float vOut = static_cast<float>(voltageMv) / 1000.0f;
-	const float r = static_cast<float>(r1);
+	const double vOut = static_cast<double>(voltageMv) / 1000.0;
+	const double r = static_cast<double>(r1);
+
+	// Prevents divison by 0
+	if (vOut >= VOLTAGE) {
+		return 0.0;
+	}
 
 	// R2 = R1 * (voltageMv / (preR1VoltageV - voltageMv))
-	return static_cast<float>(r) * (vOut / (VOLTAGE - vOut));
+	return r * (vOut / (VOLTAGE - vOut));
 }

@@ -2,6 +2,7 @@
 
 // espidf includes
 #include "driver/gpio.h"
+#include "esp_attr.h"
 
 class ActiveSensor
 {
@@ -17,7 +18,7 @@ public:
 	/*
 	 *	Public Callback functions
 	 */
-	virtual void cb();
+	IRAM_ATTR virtual void cb();
 
 protected:
 	/*

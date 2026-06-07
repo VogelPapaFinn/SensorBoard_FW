@@ -45,7 +45,7 @@ void FuelLevel::calcLevel()
 	// TODO: Update & Test
 	// Linear interpolation
 	// y = y1 + (x - x1) * ((y2 - y1) / (x2 - x1))
-	resistance_ = 0.0 + (resistance_ - 110.0) * ((100.0 - 0.0) / (3.0 - 110.0));
+	levelInPercent_ = 0.0 + (resistance_ - 110.0) * ((100.0 - 0.0) / (3.0 - 110.0));
 	if (resistance_ > 100.0) {
 		levelInPercent_ = 100;
 	}

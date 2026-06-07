@@ -3,6 +3,9 @@
 // Project includes
 #include "ActiveSensor.hpp"
 
+// espidf includes
+#include "freertos/FreeRTOS.h"
+
 class Rpm : public ActiveSensor
 {
 public:
@@ -26,6 +29,7 @@ private:
 	 */
 	int64_t lastFallingEdgeTime_ = 0;
 	int64_t fallingEdgeTime_ = 0;
+	portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
 
 	double hz_ = 0.0;
 

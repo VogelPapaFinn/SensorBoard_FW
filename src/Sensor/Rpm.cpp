@@ -19,23 +19,18 @@ constexpr uint16_t MAX_RPM = 8000;
 /*
  *	Public Function Implementations
  */
-Rpm::Rpm() : ActiveSensor(GPIO_NUM_9, GPIO_INTR_POSEDGE)
+Rpm::Rpm() : ActiveSensor(GPIO_NUM_9, GPIO_INTR_NEGEDGE)
 {
-	gpio_set_pull_mode(gpio_, GPIO_PULLDOWN_ONLY);
 }
 
 int Rpm::get()
 {
-	int64_t time = 0;
-	if (lastFallingEdgeTime_ != 0) {
-		time = fallingEdgeTime_ - lastFallingEdgeTime_;
-		lastFallingEdgeTime_ = 0; // Reset the time of the last falling edge, to detect if the rpm signal was lost
-	}
+	portENTER_CRITICAL_ISR(&mux_);
+	const int64_t time = fallingEdgeTime_ - lastFallingEdgeTime_;
+	portEXIT_CRITICAL_ISR(&mux_);
 
 	const float seconds = static_cast<float>(time) / 1000000.0f;
-
 	hz_ = round(1.0 / seconds);
-
 	calculateRpm();
 
 	return rpm_;
@@ -43,8 +38,10 @@ int Rpm::get()
 
 void Rpm::cb()
 {
+	portENTER_CRITICAL_ISR(&mux_);
 	lastFallingEdgeTime_ = fallingEdgeTime_;
 	fallingEdgeTime_ = esp_timer_get_time();
+	portEXIT_CRITICAL_ISR(&mux_);
 }
 
 /*

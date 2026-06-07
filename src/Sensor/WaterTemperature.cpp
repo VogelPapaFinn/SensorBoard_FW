@@ -41,6 +41,7 @@ int WaterTemperature::get()
 void WaterTemperature::specificRead()
 {
 	resistance_ = calcVoltageDividerR2(voltage_, R1);
+	calcTemperature(resistance_);
 }
 
 void WaterTemperature::calcTemperature(const uint16_t r)
@@ -57,18 +58,18 @@ void WaterTemperature::calcTemperature(const uint16_t r)
 		return;
 	}
 	// Iterate through all entries
-	for (int i = 0; i < amountResistanceTuples - 2; i++) {
+	for (int i = 0; i < amountResistanceTuples - 1; i++) {
 		const uint16_t r1 = tempResistanceTuples[i].r;
 		const uint16_t r2 = tempResistanceTuples[i + 1].r;
 
 		// Check if the passed resistance is between this and the next entry
 		if (r <= r1 && r >= r2) {
 			const uint8_t temp1 = tempResistanceTuples[i].temp;
-			const uint8_t temp2 = tempResistanceTuples[i].temp;
+			const uint8_t temp2 = tempResistanceTuples[i + 1].temp;
 
 			// Calculate the value with linear interpolation
 			// y = y1 + (x - x1) * (y2 - y1) / (x2 - x1)
-			temperature_ = temp1 + (r - r1) * ((temp2 - temp1) / (r2 - r1));
+			temperature_ = temp1 + ((r - r1) * ((temp2 - temp1)) / (r2 - r1));
 			return;
 		}
 	}
