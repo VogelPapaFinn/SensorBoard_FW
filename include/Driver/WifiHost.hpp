@@ -19,10 +19,16 @@ public:
 	void stop();
 
 private:
+	/*
+	 *	Instances
+	 */
 	Core* core_ = nullptr;
 
 	ArduinoJson::JsonDocument* config_ = nullptr;
 
+	/*
+	 *	Variables
+	 */
 	bool active_ = false;
 
 	std::string ssid_ = "";

@@ -22,7 +22,11 @@ private:
 
 	void nextDisplay();
 
-	void setScreen();
+	void setScreen() const;
+
+	void setRotation() const;
+
+	void displayRegistrationCompleted() const;
 
 	void wakeUpAllDisplays();
 

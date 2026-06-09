@@ -18,7 +18,7 @@ constexpr auto TAG = "Display";
 /*
  *	Public function implementations
 */
-Display::Display(const gpio_num_t powerGpio, const uint8_t& canId)
+Display::Display(const gpio_num_t powerGpio, const uint8_t& canId, const uint8_t& screen, const bool& rotateBy180)
 {
 	powerGpio_ = powerGpio;
 	if (powerGpio_ != GPIO_NUM_NC) {
@@ -26,11 +26,23 @@ Display::Display(const gpio_num_t powerGpio, const uint8_t& canId)
 	}
 
 	canId_ = canId;
+	screen_ = screen;
+	rotated_ = rotateBy180;
 }
 
 uint8_t Display::getCanId() const
 {
 	return canId_;
+}
+
+uint8_t Display::getScreen() const
+{
+	return screen_;
+}
+
+bool Display::isRotated() const
+{
+	return rotated_;
 }
 
 void Display::turnOn() const

@@ -28,10 +28,16 @@ public:
 	 */
 	void ipEventHandler(const esp_event_base_t p_eventBase, const int32_t eventId, void* p_eventData);
 private:
+	/*
+	 *	Instances
+	 */
 	Core* core_ = nullptr;
 
 	ArduinoJson::JsonDocument* config_ = nullptr;
 
+	/*
+	 *	Variables
+	 */
 	bool active_ = false;
 	bool connected_ = false;
 

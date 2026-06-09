@@ -11,9 +11,13 @@
 class Display
 {
 public:
-	explicit Display(gpio_num_t powerGpio, const uint8_t& canId);
+	explicit Display(gpio_num_t powerGpio, const uint8_t& canId, const uint8_t& screen, const bool& rotateBy180);
 
 	uint8_t getCanId() const;
+
+	uint8_t getScreen() const;
+
+	bool isRotated() const;
 
 	void turnOn() const;
 
@@ -21,6 +25,10 @@ public:
 
 private:
 	uint8_t canId_ : 3 = 0;
+
+	uint8_t screen_ = 0;
+
+	bool rotated_ = false;
 
 	gpio_num_t powerGpio_ = GPIO_NUM_NC;
 

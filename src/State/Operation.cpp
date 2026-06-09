@@ -73,6 +73,9 @@ Operation::~Operation()
 
 void Operation::enter()
 {
+	/*
+	 *	Setup passive sensors
+	 */
 	const auto adc1Handle = core_->getAdc();
 	passiveSensor_ = {
 		new FuelLevel(adc1Handle),
@@ -80,6 +83,9 @@ void Operation::enter()
 		new WaterTemperature(adc1Handle),
 	};
 
+	/*
+	 *	Setup active sensors
+	 */
 	activeSensor_ = {
 		new Rpm(),
 		new Speed(),
@@ -90,6 +96,9 @@ void Operation::enter()
 		sensor->enable();
 	}
 
+	/*
+	 *	Setup read & broadcast task
+	 */
 	if (xTaskCreate(staticReadPassiveSensorsTask, "OperationReadPassiveSensorsTask", 2048, this, 2,
 	                &readPassiveSensorsTaskHandle_) != pdPASS) {
 		ESP_LOGE(TAG, "Failed to create task for reading all passive HW sensors");
@@ -119,15 +128,17 @@ void Operation::readPassiveSensorsTask() const
 // #include "esp_random.h"
 void Operation::broadcastSensorsTask() const
 {
-	while (true) {
-		Can::Frame frame;
-		frame.sender = CAN_MASTER_ID;
-		frame.target = CAN_BROADCAST_ID;
-		frame.group = CanFrame::GROUP::SENSOR;
-		frame.function = CanFrame::SENSOR::BROADCAST_DATA;
-		frame.dataLengthCode = 8;
-		frame.answer = false;
+	Can::Frame frame;
+	frame.sender = CAN_MASTER_ID;
+	frame.target = CAN_BROADCAST_ID;
+	frame.group = CanFrame::GROUP::SENSOR;
+	frame.function = CanFrame::SENSOR::BROADCAST_DATA;
+	frame.dataLengthCode = 8;
+	frame.answer = false;
 
+	uint8_t lastData[8] = {0x00};
+
+	while (true) {
 		// Fuel Level, Oil Pressure, Water Temperature
 		for (uint8_t i = 0; i < passiveSensor_.size(); i++) {
 			frame.data[i] = passiveSensor_.at(i)->get();
@@ -148,17 +159,16 @@ void Operation::broadcastSensorsTask() const
 		// Right Indicator
 		frame.data[7] = activeSensor_.at(3)->get();
 
-		// static bool b = false;
-		// if (b) {
-		// 	b = false;
-		// 	frame.data[1] = 1;
-		// }
-		// else {
-		// 	b = true;
-		// 	frame.data[1] = 0;
-		// }
+		// Did the data stay the same?
+		bool equal = true;
+		for (uint8_t i = 0; i < frame.dataLengthCode; i++) {
+			equal &= frame.data[i] == lastData[i];
+		}
 
-		core_->getCan()->queueFrame(frame);
+		if (equal) {
+			core_->getCan()->queueFrame(frame);
+			memcpy(lastData, frame.data, frame.dataLengthCode);
+		}
 
 		vTaskDelay(pdMS_TO_TICKS(1000 / BROADCAST_SENSOR_DATA_HZ));
 	}

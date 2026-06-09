@@ -2,8 +2,9 @@
 
 // Project includes
 #include "State/State.hpp"
-#include "Sensor/PassiveSensor.hpp"
 #include "Sensor/ActiveSensor.hpp"
+#include "Sensor/PassiveSensor.hpp"
+#include "WebInterface/WebInterface.hpp"
 
 class Operation : public State
 {

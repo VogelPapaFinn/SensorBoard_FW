@@ -38,15 +38,21 @@ void Registration::handleCanFrame(const Can::Frame& frame)
 	switch (frame.function) {
 		case CanFrame::REGISTER_AT_MASTER:
 		{
-			// Correct ID
-			if (frame.sender == expectedCanId) {
-				confirmId(currDisplay);
+			const bool correctCanId = frame.sender == expectedCanId;
+			const bool correctScreen = frame.data[0] == core_->getDisplays()->at(currDisplay).getScreen();
+
+			if (!correctCanId) {
+				setId(frame.sender, expectedCanId);
+				return;
+			}
+
+			if (!correctScreen) {
 				setScreen();
 				return;
 			}
 
-			// Wrong ID
-			setId(frame.sender, expectedCanId);
+			// Everything is correct
+			nextDisplay();
 			return;
 		}
 		break;
@@ -76,13 +82,23 @@ void Registration::handleCanFrame(const Can::Frame& frame)
 				return;
 			}
 
+			setRotation();
+		}
+		break;
+
+		case CanFrame::SET_ROTATION:
+		{
+			if (!frame.answer) {
+				return;
+			}
+
 			nextDisplay();
 		}
 		break;
 
 		default:
 		{
-			esp_rom_printf("DEFAULT\n");
+			esp_rom_printf("Received unknown CAN message type!\n");
 		}
 		break;
 	}
@@ -119,7 +135,9 @@ void Registration::setId(const uint8_t& oldId, const uint8_t& newId)
 
 void Registration::nextDisplay()
 {
-	if (++currDisplay >= 3) {
+	displayRegistrationCompleted();
+
+	if (++currDisplay >= 1) {
 		wakeUpAllDisplays();
 
 		Event event(Event::REGISTRATION_FINISHED);
@@ -132,17 +150,41 @@ void Registration::nextDisplay()
 	core_->getDisplays()->at(currDisplay).turnOn();
 }
 
-void Registration::setScreen()
+void Registration::setScreen() const
 {
-	static int screen = 0;
-
 	Can::Frame txFrame;
 	txFrame.sender = CAN_MASTER_ID;
 	txFrame.target = core_->getDisplays()->at(currDisplay).getCanId();
 	txFrame.group = CanFrame::GROUP::CONFIGURATION;
 	txFrame.function = CanFrame::CONFIGURATION::SET_SCREEN;
 	txFrame.dataLengthCode = 1;
-	txFrame.data[0] = currDisplay == 0 ? 1 : currDisplay == 1 ? 0 : 2; // RPM, Temp, Speed
+	txFrame.data[0] = core_->getDisplays()->at(currDisplay).getScreen();
+	txFrame.answer = false;
+
+	Core::get()->getCan()->queueFrame(txFrame);
+}
+
+void Registration::setRotation() const
+{
+	Can::Frame txFrame;
+	txFrame.sender = CAN_MASTER_ID;
+	txFrame.target = core_->getDisplays()->at(currDisplay).getCanId();
+	txFrame.group = CanFrame::GROUP::CONFIGURATION;
+	txFrame.function = CanFrame::CONFIGURATION::SET_ROTATION;
+	txFrame.dataLengthCode = 1;
+	txFrame.data[0] = core_->getDisplays()->at(currDisplay).isRotated();
+	txFrame.answer = false;
+
+	Core::get()->getCan()->queueFrame(txFrame);
+}
+
+void Registration::displayRegistrationCompleted() const
+{
+	Can::Frame txFrame;
+	txFrame.sender = CAN_MASTER_ID;
+	txFrame.target = core_->getDisplays()->at(currDisplay).getCanId();
+	txFrame.group = CanFrame::GROUP::CONFIGURATION;
+	txFrame.function = CanFrame::CONFIGURATION::REGISTRATION_COMPLETED;
 	txFrame.answer = false;
 
 	Core::get()->getCan()->queueFrame(txFrame);
