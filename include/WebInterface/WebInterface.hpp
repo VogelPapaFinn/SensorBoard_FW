@@ -1,8 +1,8 @@
 #pragma once
 
 // Project includes
-#include "Driver/WifiHost.hpp"
-#include "Driver/WifiJoin.hpp"
+#include "WifiHost.hpp"
+#include "WifiJoin.hpp"
 
 // espidf includes
 #include "esp_http_server.h"

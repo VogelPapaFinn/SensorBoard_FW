@@ -4,7 +4,7 @@
 #include "Can.hpp"
 #include "Config.hpp"
 #include "Driver/Display.hpp"
-#include "Driver/Wifi.hpp"
+#include "../../components/wifi/Wifi.hpp"
 
 // espidf includes
 #include "esp_adc/adc_oneshot.h"

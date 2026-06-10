@@ -1,6 +1,9 @@
 #include "State/Operation.hpp"
 
 // Project includes
+#include "Wifi.hpp"
+#include "WifiHost.hpp"
+#include "WifiJoin.hpp"
 #include "Sensor/FuelLevel.hpp"
 #include "Sensor/LeftIndicator.hpp"
 #include "Sensor/OilPressure.hpp"
@@ -8,9 +11,6 @@
 #include "Sensor/Rpm.hpp"
 #include "Sensor/Speed.hpp"
 #include "Sensor/WaterTemperature.hpp"
-#include "Driver/WifiJoin.hpp"
-#include "Driver/WifiHost.hpp"
-#include "Driver/Wifi.hpp"
 
 // espidf includes
 #include "esp_log.h"
