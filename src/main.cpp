@@ -82,7 +82,7 @@ extern "C" void app_main(void)
 		vTaskDelay(pdMS_TO_TICKS(100000)); // Fallback
 	}
 
-	if (xTaskCreate(mainEventTask, "MainEventTask", 2048, NULL, 2, NULL) != pdPASS) {
+	if (xTaskCreate(mainEventTask, "MainEventTask", 2048 * 2, NULL, 2, NULL) != pdPASS) {
 		ESP_LOGE(TAG, "Failed to create main event task");
 		esp_restart();
 		vTaskDelay(pdMS_TO_TICKS(100000)); // Fallback

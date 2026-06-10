@@ -14,7 +14,8 @@ public:
 	{
 		UNKNOWN,
 		REGISTRATION,
-		OPERATION
+		OPERATION,
+		WIFI_OTA_UPDATE
 	} TYPE;
 
 	/*

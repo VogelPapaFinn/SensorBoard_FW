@@ -121,7 +121,8 @@ struct WsContext
 	WebInterface* web = nullptr;
 	int clientFd = 0;
 };
-static void staticWebsocketCrashedHandler(void *ctx)
+
+static void staticWebsocketCrashedHandler(void* ctx)
 {
 	if (ctx == nullptr) {
 		return;
@@ -204,38 +205,41 @@ static void updateSensorsTask(void* param)
 /*
  *	Public Function Implementations
  */
-WebInterface::WebInterface(const bool initiateWifiDriver)
+WebInterface::WebInterface()
 {
 	sensorsMutex_ = xSemaphoreCreateMutex();
 
 	core_ = Core::get();
-	config_ = core_->getConfig();
-	if (config_->isNull()) {
-		ESP_LOGE(TAG, "Failed to load config");
+
+	httpdConfig_ = HTTPD_DEFAULT_CONFIG();
+	httpdConfig_.uri_match_fn = httpd_uri_match_wildcard;
+	httpdConfig_.stack_size = 8192;
+	httpdConfig_.lru_purge_enable = true;
+
+	if (httpd_start(&httpdHandle_, &httpdConfig_) != ESP_OK) {
+		ESP_LOGE(TAG, "Failed to start webserver");
 		return;
 	}
 
-	if (initiateWifiDriver) {
-		if ((*config_)[JSON_WIFI_MODE]) {
-			wifiMode_ = (*config_)[JSON_WIFI_MODE].as<std::string>();
-		}
-
-		if (wifiMode_ == "") {
-			ESP_LOGI(TAG, "Wifi mode was empty. Aborting");
-			return;
-		}
-
-		if (wifiMode_ == JSON_WIFI_HOST) {
-			wifiHost_.start();
-		}
-		if (wifiMode_ == JSON_WIFI_JOIN) {
-			wifiJoin_.callOnConnect([this] { onConnectedToWifi(); });
-			wifiJoin_.connect();
-			return;
-		}
+	const httpd_uri_t websocketUri = {
+		.uri = "/ws",
+		.method = HTTP_GET,
+		.handler = staticWebsocketHandler,
+		.user_ctx = this,
+		.is_websocket = true
+	};
+	if (httpd_register_uri_handler(httpdHandle_, &websocketUri) != ESP_OK) {
+		ESP_LOGE(TAG, "Failed to register Websocket URI");
+		return;
 	}
 
-	onConnectedToWifi();
+	if (httpd_register_uri_handler(httpdHandle_, &FILE_URI) != ESP_OK) {
+		ESP_LOGE(TAG, "Failed to register File URI");
+		return;
+	}
+
+	ESP_LOGI(TAG, "Initialized");
+	initialized_ = true;
 }
 
 void WebInterface::send(const int clientFD, const std::string& data) const
@@ -357,7 +361,6 @@ void WebInterface::websocketCrashed(const int fd)
 		return;
 	}
 
-
 	if (updateSensorsDataTask_ == nullptr) {
 		return;
 	}
@@ -369,39 +372,6 @@ void WebInterface::websocketCrashed(const int fd)
 /*
  *	Private Functions Implementations
  */
-void WebInterface::onConnectedToWifi()
-{
-	httpdConfig_ = HTTPD_DEFAULT_CONFIG();
-	httpdConfig_.uri_match_fn = httpd_uri_match_wildcard;
-	httpdConfig_.stack_size = 8192;
-	httpdConfig_.lru_purge_enable = true;
-
-	if (httpd_start(&httpdHandle_, &httpdConfig_) != ESP_OK) {
-		ESP_LOGE(TAG, "Failed to start webserver");
-		return;
-	}
-
-	const httpd_uri_t websocketUri = {
-		.uri = "/ws",
-		.method = HTTP_GET,
-		.handler = staticWebsocketHandler,
-		.user_ctx = this,
-		.is_websocket = true
-	};
-	if (httpd_register_uri_handler(httpdHandle_, &websocketUri) != ESP_OK) {
-		ESP_LOGE(TAG, "Failed to register Websocket URI");
-		return;
-	}
-
-	if (httpd_register_uri_handler(httpdHandle_, &FILE_URI) != ESP_OK) {
-		ESP_LOGE(TAG, "Failed to register File URI");
-		return;
-	}
-
-	ESP_LOGI(TAG, "Initialized");
-	initialized_ = true;
-}
-
 void WebInterface::sendAllSensors(const int clientFD) const
 {
 	std::stringstream output;

@@ -19,34 +19,19 @@ constexpr auto JSON_PASSWORD = "password";
  *	Public Function Implementations
  */
 WifiHost::WifiHost() :
+	Wifi(WIFI_TYPE::HOST),
 	wifiConfig_()
 {
-	core_ = Core::get();
-	config_ = core_->getConfig();
-	if (config_->isNull()) {
-		ESP_LOGE(TAG, "Failed to load config");
-		return;
-	}
-
-	/*
-	 * Load SSID & Password
-	 */
-	if ((*config_)[JSON_HOST_WIFI][JSON_SSID]) {
-		ssid_ = (*config_)[JSON_HOST_WIFI][JSON_SSID].as<std::string>();
-	}
-	if ((*config_)[JSON_HOST_WIFI][JSON_PASSWORD]) {
-		password_ = (*config_)[JSON_HOST_WIFI][JSON_PASSWORD].as<std::string>();
-	}
 }
 
 WifiHost::~WifiHost()
 {
-	stop();
+	WifiHost::stop();
 }
 
 bool WifiHost::start()
 {
-	if (active_) {
+	if (connected_) {
 		return false;
 	}
 
@@ -113,13 +98,18 @@ bool WifiHost::start()
 		return false;
 	}
 
-	active_ = true;
+	// Everything worked
+	connected_ = true;
+	if (callOnSuccess_) {
+		callOnSuccess_();
+	}
+
 	return true;
 }
 
 void WifiHost::stop()
 {
-	if (!active_) {
+	if (!connected_) {
 		return;
 	}
 

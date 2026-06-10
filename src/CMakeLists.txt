@@ -7,8 +7,12 @@ set(FILES
         # Drivers
         "Driver/Display.cpp"
         "Driver/KLine.cpp"
+        "Driver/Wifi.cpp"
         "Driver/WifiHost.cpp"
         "Driver/WifiJoin.cpp"
+
+        # WebInterface
+        "WebInterface/WebInterface.cpp"
 
         # Core
         "Core.cpp"
@@ -17,6 +21,7 @@ set(FILES
         "State/State.cpp"
         "State/Registration.cpp"
         "State/Operation.cpp"
+        "State/WifiOtaUpdate.cpp"
 
         # Sensors
         "Sensor/ActiveSensor.cpp"
@@ -30,9 +35,6 @@ set(FILES
         "Sensor/Rpm.cpp"
         "Sensor/LeftIndicator.cpp"
         "Sensor/RightIndicator.cpp"
-
-        # WebInterface
-        "WebInterface/WebInterface.cpp"
 )
 
 idf_component_register(SRCS ${FILES}

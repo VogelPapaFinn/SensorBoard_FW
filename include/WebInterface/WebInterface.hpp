@@ -10,7 +10,7 @@
 class WebInterface
 {
 public:
-	WebInterface(bool initiateWifiDriver = true);
+	WebInterface();
 
 	void send(int clientFD, const std::string& data) const;
 
@@ -28,8 +28,6 @@ private:
 	/*
 	 *	Private Functions
 	 */
-	 void onConnectedToWifi();
-
 	void sendAllSensors(int clientFD) const;
 
 	/*
@@ -38,13 +36,6 @@ private:
 	Core* core_ = nullptr;
 
 	bool initialized_ = false;
-
-	ArduinoJson::JsonDocument* config_;
-
-	std::string wifiMode_;
-
-	WifiHost wifiHost_;
-	WifiJoin wifiJoin_;
 
 	httpd_config_t httpdConfig_ = HTTPD_DEFAULT_CONFIG();
 	httpd_handle_t httpdHandle_;

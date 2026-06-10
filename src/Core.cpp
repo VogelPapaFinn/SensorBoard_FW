@@ -1,5 +1,8 @@
 #include "Core.hpp"
 
+// Project includes
+#include "WebInterface/WebInterface.hpp"
+
 // espidf includes
 #include "esp_log.h"
 
@@ -59,6 +62,26 @@ ArduinoJson::JsonDocument* Core::getConfig() const {
 
 void Core::saveConfig() const {
 	config_->save();
+}
+
+void Core::setWifi(Wifi* wifi)
+{
+	wifi_ = wifi;
+}
+
+Wifi* Core::getWifi() const
+{
+	return wifi_;
+}
+
+void Core::setWebinterface(WebInterface* web)
+{
+	webInterface_ = web;
+}
+
+WebInterface* Core::getWebinterface() const
+{
+	return webInterface_;
 }
 
 Can* Core::getCan() const

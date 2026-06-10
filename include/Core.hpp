@@ -4,9 +4,13 @@
 #include "Can.hpp"
 #include "Config.hpp"
 #include "Driver/Display.hpp"
+#include "Driver/Wifi.hpp"
 
 // espidf includes
 #include "esp_adc/adc_oneshot.h"
+
+// Circular inclusion
+class WebInterface;
 
 /*
  *	Public constexpr
@@ -33,9 +37,15 @@ public:
 
 	ArduinoJson::JsonDocument* getConfig() const;
 
-	void setWifi
-
 	void saveConfig() const;
+
+	void setWifi(Wifi* wifi);
+
+	Wifi* getWifi() const;
+
+	void setWebinterface(WebInterface* web);
+
+	WebInterface* getWebinterface() const;
 
 	/*
 	 *	CAN related functions
@@ -49,6 +59,10 @@ private:
 	static Core* self_;
 
 	Can* can_ = nullptr;
+
+	Wifi* wifi_ = nullptr;
+
+	WebInterface* webInterface_ = nullptr;
 
 	/*
 	 *	Private Functions

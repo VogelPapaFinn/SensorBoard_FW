@@ -8,6 +8,9 @@
 #include "Sensor/Rpm.hpp"
 #include "Sensor/Speed.hpp"
 #include "Sensor/WaterTemperature.hpp"
+#include "Driver/WifiJoin.hpp"
+#include "Driver/WifiHost.hpp"
+#include "Driver/Wifi.hpp"
 
 // espidf includes
 #include "esp_log.h"
@@ -51,6 +54,8 @@ void staticBroadcastSensorDataTask(void* param)
 Operation::Operation() :
 	State(State::OPERATION), readPassiveSensorsTaskHandle_(nullptr), broadCastSensorDataTaskHandle_(nullptr)
 {
+	config_ = core_->getConfig();
+
 	if (gpio_install_isr_service(ESP_INTR_FLAG_IRAM) != ESP_OK) {
 		ESP_LOGE(TAG, "Failed to install the ISR service");
 	}
@@ -107,6 +112,62 @@ void Operation::enter()
 	if (xTaskCreate(staticBroadcastSensorDataTask, "OperationBroadcastSensorDataTask", 2048, this, 2,
 	                &broadCastSensorDataTaskHandle_) != pdPASS) {
 		ESP_LOGE(TAG, "Failed to create task for broadcasting sensor data");
+	}
+
+	/*
+	 *	Wifi
+	 */
+	Wifi::WIFI_TYPE wifiType = Wifi::WIFI_TYPE::HOST;
+	if ((*config_)["ForceWifiMode"]) {
+		wifiType = static_cast<Wifi::WIFI_TYPE>((*config_)["ForceWifiMode"].as<int>());
+	}
+
+	Wifi* wifi = nullptr;
+
+	// Host
+	if (wifiType == Wifi::WIFI_TYPE::HOST) {
+		// Create Wifi
+		wifi = new WifiHost();
+		core_->setWifi(wifi);
+
+		// Initialize Wifi
+		wifi->setSSID((*config_)["WifiHost"]["ssid"]);
+		wifi->setPassword((*config_)["WifiHost"]["password"]);
+		wifi->callOnSuccess([this]
+		{
+			WebInterface* webInterface = new WebInterface();
+			core_->setWebinterface(webInterface);
+
+			this->setupDisplayWifi();
+		});
+
+		wifi->start();
+	}
+
+	// Join
+	else if (wifiType == Wifi::WIFI_TYPE::JOIN) {
+		// Create Wifi
+		wifi = new WifiJoin();
+		core_->setWifi(wifi);
+
+		// Initialize Wifi
+		wifi->setSSID((*config_)["WifiJoin"]["ssid"]);
+		wifi->setPassword((*config_)["WifiJoin"]["password"]);
+		wifi->callOnSuccess([this]
+		{
+			WebInterface* webInterface = new WebInterface();
+			core_->setWebinterface(webInterface);
+
+			this->setupDisplayWifi();
+		});
+
+		wifi->start();
+	}
+
+	// Error
+	else {
+		ESP_LOGW(TAG, "Failed to initialize wifi. Continuing without it");
+		return;
 	}
 }
 
@@ -171,5 +232,69 @@ void Operation::broadcastSensorsTask() const
 		}
 
 		vTaskDelay(pdMS_TO_TICKS(1000 / BROADCAST_SENSOR_DATA_HZ));
+	}
+}
+
+/*
+ *	Private Function Implementations
+ */
+void Operation::setupDisplayWifi() const
+{
+	ESP_LOGI(TAG, "Starting to transmit SSID and Password to the displays");
+
+	Can::Frame txFrame;
+	txFrame.sender = CAN_MASTER_ID;
+	txFrame.target = CAN_BROADCAST_ID;
+	txFrame.group = CanFrame::GROUP::WIFI;
+	txFrame.function = CanFrame::WIFI::SET_SSID;
+
+	/*
+	 *	SSID
+	 */
+	// Split the ssid up into packages with a size of max 8 bytes/chars
+	const auto& ssid = core_->getWifi()->getSSID();
+	std::vector<std::vector<char>> allSsidPackages;
+	std::vector<char> ssidPackage;
+	for (const auto& c : ssid) {
+		if (ssidPackage.size() >= 8) {
+			allSsidPackages.push_back(ssidPackage);
+			ssidPackage.clear();
+		}
+
+		ssidPackage.push_back(c);
+	}
+	allSsidPackages.push_back(ssidPackage); // Add the last package too
+
+	// Transmit all packages to the displays
+	for (const auto& package : allSsidPackages) {
+		txFrame.dataLengthCode = package.size();
+		std::copy(package.begin(), package.end(), txFrame.data);
+
+		Core::get()->getCan()->queueFrame(txFrame);
+	}
+
+	/*
+	 *	Password
+	 */
+	// Split the password up into packages with a size of max 8 bytes/chars
+	const auto& password = core_->getWifi()->getPassword();
+	std::vector<std::vector<char>> allPsswdPackages;
+	std::vector<char> psswdPackage;
+	for (const auto& c : password) {
+		if (psswdPackage.size() >= 8) {
+			allPsswdPackages.push_back(psswdPackage);
+			psswdPackage.clear();
+		}
+
+		psswdPackage.push_back(c);
+	}
+	allPsswdPackages.push_back(psswdPackage); // Add the last package too
+
+	// Transmit all packages to the displays
+	for (const auto& package : allPsswdPackages) {
+		txFrame.dataLengthCode = package.size();
+		std::copy(package.begin(), package.end(), txFrame.data);
+
+		Core::get()->getCan()->queueFrame(txFrame);
 	}
 }

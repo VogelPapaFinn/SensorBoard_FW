@@ -32,15 +32,12 @@ static void staticWifiEventHandler(void* p_arg, const esp_event_base_t p_eventBa
 	}
 
 	if (eventId == WIFI_EVENT_STA_START) {
-		ESP_LOGI(TAG, "Connecting...");
 		esp_wifi_connect();
 
 		return;
 	}
 
 	if (eventId == WIFI_EVENT_STA_DISCONNECTED) {
-		ESP_LOGI(TAG, "Disconnected, retrying...");
-
 		esp_wifi_connect();
 
 		static uint8_t failCounter = 0;
@@ -100,39 +97,17 @@ static void staticSynchronizeTimeTask(void* p_param)
  *	Public Function Implementations
  */
 WifiJoin::WifiJoin() :
+	Wifi(WIFI_TYPE::JOIN),
 	wifiConfig_()
 {
-	core_ = Core::get();
-	config_ = core_->getConfig();
-	if (config_->isNull()) {
-		ESP_LOGE(TAG, "Failed to load config");
-		return;
-	}
-
-	/*
-	 * Load SSID & Password
-	 */
-	if ((*config_)[JSON_JOIN_WIFI][JSON_SSID]) {
-		ssid_ = (*config_)[JSON_JOIN_WIFI][JSON_SSID].as<std::string>();
-	}
-	if ((*config_)[JSON_JOIN_WIFI][JSON_PASSWORD]) {
-		password_ = (*config_)[JSON_JOIN_WIFI][JSON_PASSWORD].as<std::string>();
-	}
-
-	ESP_LOGI(TAG, "Using SSID '%s' and Password '%s'", ssid_.c_str(), password_.c_str());
 }
 
 WifiJoin::~WifiJoin()
 {
-	disconnect();
+	WifiJoin::stop();
 }
 
-void WifiJoin::callOnConnect(const std::function<void()>& cb)
-{
-	onConnectedCb_ = cb;
-}
-
-bool WifiJoin::connect()
+bool WifiJoin::start()
 {
 	if (active_) {
 		return false;
@@ -164,9 +139,9 @@ bool WifiJoin::connect()
 	}
 
 	/*
-	 *	Starting AP
+	 *	Joining AP
 	 */
-	ESP_LOGI(TAG, "Starting AP");
+	ESP_LOGI(TAG, "Joining AP");
 
 	espNetif_ = esp_netif_create_default_wifi_sta();
 	if (espNetif_ == nullptr) {
@@ -220,7 +195,7 @@ bool WifiJoin::connect()
 	return true;
 }
 
-void WifiJoin::disconnect()
+void WifiJoin::stop()
 {
 	esp_wifi_stop();
 
@@ -257,8 +232,8 @@ void WifiJoin::ipEventHandler(const esp_event_base_t p_eventBase, const int32_t 
 
 		ESP_LOGI(TAG, "Got IP assigned: %d.%d.%d.%d", IP2STR(&event->ip_info.ip));
 
-		if (onConnectedCb_) {
-			onConnectedCb_();
+		if (callOnSuccess_) {
+			callOnSuccess_();
 		}
 
 		// Initialize the SNTP for time synchronization

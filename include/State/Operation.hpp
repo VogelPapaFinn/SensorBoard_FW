@@ -26,6 +26,11 @@ public:
 
 private:
 	/*
+	 *	Private Functions
+	 */
+	void setupDisplayWifi() const;
+
+	/*
 	 *	Private Variables
 	 */
 	TaskHandle_t readPassiveSensorsTaskHandle_;
@@ -35,4 +40,6 @@ private:
 	std::vector<PassiveSensor*> passiveSensor_;
 
 	std::vector<ActiveSensor*> activeSensor_;
+
+	ArduinoJson::JsonDocument* config_ = nullptr;
 };
