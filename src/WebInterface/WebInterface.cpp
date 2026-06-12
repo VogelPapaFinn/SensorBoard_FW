@@ -2,6 +2,8 @@
 
 // Project includes
 #include "Driver/EcuSensors.hpp"
+#include "Event.hpp"
+#include "Core.hpp"
 
 // C++ includes
 #include <sstream>
@@ -157,6 +159,26 @@ static esp_err_t staticWebsocketHandler(httpd_req_t* p_reqst)
 	return web->websocketHandler(p_reqst);
 }
 
+static esp_err_t staticDisplayUpdateUploadHandler(httpd_req_t* p_reqst)
+{
+	if (p_reqst->user_ctx == nullptr) {
+		return ESP_FAIL;
+	}
+
+	const auto web = static_cast<WebInterface*>(p_reqst->user_ctx);
+	return web->displayUpdateUploadHandler(p_reqst);
+}
+
+static esp_err_t staticDisplayUpdateDownloadHandler(httpd_req_t* p_reqst)
+{
+	if (p_reqst->user_ctx == nullptr) {
+		return ESP_FAIL;
+	}
+
+	const auto web = static_cast<WebInterface*>(p_reqst->user_ctx);
+	return web->displayUpdateDownloadHandler(p_reqst);
+}
+
 static void updateSensorsTask(void* param)
 {
 	if (param == nullptr) {
@@ -209,8 +231,6 @@ WebInterface::WebInterface()
 {
 	sensorsMutex_ = xSemaphoreCreateMutex();
 
-	core_ = Core::get();
-
 	httpdConfig_ = HTTPD_DEFAULT_CONFIG();
 	httpdConfig_.uri_match_fn = httpd_uri_match_wildcard;
 	httpdConfig_.stack_size = 8192;
@@ -230,6 +250,28 @@ WebInterface::WebInterface()
 	};
 	if (httpd_register_uri_handler(httpdHandle_, &websocketUri) != ESP_OK) {
 		ESP_LOGE(TAG, "Failed to register Websocket URI");
+		return;
+	}
+
+	const httpd_uri_t updateFileUploadUri = {
+		.uri = "/display-update-upload",
+		.method = HTTP_POST,
+		.handler = staticDisplayUpdateUploadHandler,
+		.user_ctx = this
+	};
+	if (httpd_register_uri_handler(httpdHandle_, &updateFileUploadUri) != ESP_OK) {
+		ESP_LOGE(TAG, "Failed to register display update upload URI");
+		return;
+	}
+
+	const httpd_uri_t updateFileDownloadUri = {
+		.uri = "/display-update.bin",
+		.method = HTTP_GET,
+		.handler = staticDisplayUpdateDownloadHandler,
+		.user_ctx = this
+	};
+	if (httpd_register_uri_handler(httpdHandle_, &updateFileDownloadUri) != ESP_OK) {
+		ESP_LOGE(TAG, "Failed to register display update download URI");
 		return;
 	}
 
@@ -345,6 +387,120 @@ esp_err_t WebInterface::websocketHandler(httpd_req_t* p_reqst)
 
 		return ESP_OK;
 	}
+
+	if (dataStr.contains("prepare-display-update")) {
+		auto filesystem = Filesystem::get();
+
+		// Create file if necessary
+		if (!filesystem->doesFileExist("display_update.bin", Filesystem::Location::SD_CARD)) {
+			filesystem->createFile("display_update.bin", Filesystem::Location::SD_CARD);
+		}
+
+		if (displayUpdateFile_ != nullptr) {
+			fclose(displayUpdateFile_);
+		}
+
+		displayUpdateFile_ = filesystem->openFile("display_update.bin", "wb+", Filesystem::Location::SD_CARD);
+
+		return ESP_OK;
+	}
+
+	return ESP_OK;
+}
+
+esp_err_t WebInterface::displayUpdateUploadHandler(httpd_req_t* p_reqst) const
+{
+	if (displayUpdateFile_ == nullptr) {
+		ESP_LOGE(TAG, "Can't download the display update file. The destination file is a nullptr!");
+		return ESP_FAIL;
+	}
+
+	ESP_LOGI(TAG, "Uploading display update file...");
+
+	/*
+	 *	Download file
+	*/
+	size_t remaining = p_reqst->content_len;
+	int received = 0;
+	char buf[1024];
+
+	while (remaining > 0) {
+		// Read file chunk
+		received = httpd_req_recv(p_reqst, buf, MIN(remaining, sizeof(buf)));
+
+		if (received <= 0) {
+			// Retry on timeout
+			if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+				continue;
+			}
+
+			// Fault
+			return ESP_FAIL;
+		}
+
+		// Write into the file on the filesystem
+		if (fwrite(buf, 1, received, displayUpdateFile_) != received) {
+			ESP_LOGE(TAG, "Failed writing into display update file!");
+
+			fclose(displayUpdateFile_);
+			return ESP_FAIL;
+		}
+
+		remaining -= received;
+	}
+
+	// Close the file
+	fclose(displayUpdateFile_);
+
+	ESP_LOGI(TAG, "Upload of display update file successful!");
+
+	/*
+	 *	Notify backend that the update is ready
+	 */
+	Event event;
+	event.type = Event::DISPLAY_UPDATE_DOWNLOADED;
+	xQueueSend(Core::get()->getMainEventQueue(), &event, portMAX_DELAY);
+
+	return ESP_OK;
+}
+
+esp_err_t WebInterface::displayUpdateDownloadHandler(httpd_req_t* p_reqst)
+{
+	/*
+	 *	Open the file
+	 */
+	const auto filesystem = Filesystem::get();
+	if (!filesystem->doesFileExist("display_update.bin", Filesystem::SD_CARD)) {
+		ESP_LOGE(TAG, "Display update file does not exist!");
+		return ESP_FAIL;
+	}
+
+	displayUpdateFile_ = filesystem->openFile("display_update.bin", "r", Filesystem::SD_CARD);
+	if (displayUpdateFile_ == nullptr) {
+		ESP_LOGE(TAG, "Couldn't open display update file!");
+		return ESP_FAIL;
+	}
+
+	/*
+	 *	Upload file
+	*/
+	// Set to binary stream
+	httpd_resp_set_type(p_reqst, "application/octet-stream");
+
+	char chunk[1024];
+	size_t readBytes;
+	while ((readBytes = fread(chunk, 1, sizeof(chunk), displayUpdateFile_)) > 0) {
+		if (httpd_resp_send_chunk(p_reqst, chunk, readBytes) != ESP_OK) {
+			fclose(displayUpdateFile_);
+			return ESP_FAIL;
+		}
+	}
+
+	// Signalize end of stream
+	httpd_resp_send_chunk(p_reqst, NULL, 0);
+	fclose(displayUpdateFile_);
+
+	esp_rom_printf("Download of display update file successful!\n");
 
 	return ESP_OK;
 }

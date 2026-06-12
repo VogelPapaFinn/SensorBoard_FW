@@ -9,3 +9,8 @@ State::State(TYPE type)
 
 	core_ = Core::get();
 }
+
+State::TYPE State::getType() const
+{
+	return type_;
+}

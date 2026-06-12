@@ -6,6 +6,7 @@ struct Event
 	{
 		UNKNOWN,
 		REGISTRATION_FINISHED,
+		DISPLAY_UPDATE_DOWNLOADED
 	} TYPE;
 
 	Event(const TYPE type = UNKNOWN, const int data = 0)

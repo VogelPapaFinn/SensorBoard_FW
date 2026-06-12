@@ -23,6 +23,10 @@ public:
 	 */
 	esp_err_t websocketHandler(httpd_req_t* p_reqst);
 
+	esp_err_t displayUpdateUploadHandler(httpd_req_t* p_reqst) const;
+
+	esp_err_t displayUpdateDownloadHandler(httpd_req_t* p_reqst);
+
 	void websocketCrashed(const int fd);
 private:
 	/*
@@ -33,8 +37,6 @@ private:
 	/*
 	 *	Private Variables
 	 */
-	Core* core_ = nullptr;
-
 	bool initialized_ = false;
 
 	httpd_config_t httpdConfig_ = HTTPD_DEFAULT_CONFIG();
@@ -43,4 +45,6 @@ private:
 	SemaphoreHandle_t sensorsMutex_;
 	std::unordered_map<int, std::vector<uint16_t>> trackedSensors_;
 	TaskHandle_t updateSensorsDataTask_;
+
+	FILE* displayUpdateFile_ = nullptr;
 };

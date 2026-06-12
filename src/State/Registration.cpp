@@ -137,7 +137,7 @@ void Registration::nextDisplay()
 {
 	displayRegistrationCompleted();
 
-	if (++currDisplay >= 1) {
+	if (++currDisplay >= 3) {
 		wakeUpAllDisplays();
 
 		Event event(Event::REGISTRATION_FINISHED);

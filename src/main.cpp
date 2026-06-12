@@ -57,6 +57,15 @@ static void mainEventTask(void* param)
 				currentState->enter();
 			}
 			break;
+
+			case Event::DISPLAY_UPDATE_DOWNLOADED:
+			{
+				if (currentState.get()->getType() == State::OPERATION) {
+					const auto operation = static_cast<Operation*>(currentState.get());
+					operation->executeDisplayUpdate();
+				}
+			}
+				break;
 			default: ;
 		}
 	}
@@ -67,6 +76,7 @@ static void mainEventTask(void* param)
  */
 extern "C" void app_main(void)
 {
+	// MUSS STEHEN BLEIBEN FUERS DEBUGGING
 	vTaskDelay(pdMS_TO_TICKS(100));
 
 	ESP_LOGI(TAG, "--- --- --- --- --- --- ---");

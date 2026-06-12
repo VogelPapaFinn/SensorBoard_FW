@@ -25,6 +25,8 @@ public:
 
 	virtual void enter() = 0;
 
+	TYPE getType() const;
+
 	virtual void handleCanFrame(const Can::Frame& frame) = 0;
 
 protected:

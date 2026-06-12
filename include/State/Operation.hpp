@@ -17,6 +17,8 @@ public:
 
 	void handleCanFrame(const Can::Frame& frame) override;
 
+	void executeDisplayUpdate() const;
+
 	/*
 	 *	Private Tasks
 	 */

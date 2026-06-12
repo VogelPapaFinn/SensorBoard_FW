@@ -173,6 +173,58 @@ void Operation::enter()
 
 void Operation::handleCanFrame(const Can::Frame& frame)
 {
+	if (blocked) {
+		return;
+	}
+
+	if (frame.group != CanFrame::GROUP::WIFI) {
+		return;
+	}
+
+	// Act depending on the function type
+	if (frame.group == CanFrame::WIFI) {
+		// Act depending on the function type
+		switch (frame.function) {
+			case CanFrame::WIFI::JOIN_WIFI:
+			{
+				if (!frame.answer) {
+					return;
+				}
+
+				static uint8_t counter = 0;
+				esp_rom_printf("Display %d joined Wifi\n", ++counter);
+			}
+			break;
+
+			case CanFrame::WIFI::EXECUTE_UPDATE:
+			{
+				if (!frame.answer) {
+					return;
+				}
+
+				static uint8_t counter = 0;
+				ESP_LOGI(TAG, "Display %d executed update successfully!", ++counter);
+
+				// Restart all displays & ourself when they are ready
+				if (counter >= 3) {
+					Can::Frame txFrame;
+					txFrame.sender = CAN_MASTER_ID;
+					txFrame.target = CAN_BROADCAST_ID;
+					txFrame.group = CanFrame::GROUP::CONFIGURATION;
+					txFrame.function = CanFrame::CONFIGURATION::RESTART;
+
+					Core::get()->getCan()->queueFrame(txFrame);
+
+					vTaskDelay(pdMS_TO_TICKS(1000));
+					esp_restart();
+				}
+			}
+			break;
+
+			default:
+				break;
+		}
+	}
 }
 
 void Operation::readPassiveSensorsTask() const
@@ -242,11 +294,22 @@ void Operation::setupDisplayWifi() const
 {
 	ESP_LOGI(TAG, "Starting to transmit SSID and Password to the displays");
 
-	Can::Frame txFrame;
-	txFrame.sender = CAN_MASTER_ID;
-	txFrame.target = CAN_BROADCAST_ID;
-	txFrame.group = CanFrame::GROUP::WIFI;
-	txFrame.function = CanFrame::WIFI::SET_SSID;
+	/*
+	 *	Transmit own IP
+	 */
+	Can::Frame transmitMasterIpFrame;
+	transmitMasterIpFrame.sender = CAN_MASTER_ID;
+	transmitMasterIpFrame.target = CAN_BROADCAST_ID;
+	transmitMasterIpFrame.group = CanFrame::GROUP::WIFI;
+	transmitMasterIpFrame.function = CanFrame::WIFI::SET_MASTER_IP;
+	transmitMasterIpFrame.dataLengthCode = 4;
+
+	const auto& ip = core_->getWifi()->getIp();
+	transmitMasterIpFrame.data[0] = ip[0];
+	transmitMasterIpFrame.data[1] = ip[1];
+	transmitMasterIpFrame.data[2] = ip[2];
+	transmitMasterIpFrame.data[3] = ip[3];
+	Core::get()->getCan()->queueFrame(transmitMasterIpFrame);
 
 	/*
 	 *	SSID
@@ -267,10 +330,15 @@ void Operation::setupDisplayWifi() const
 
 	// Transmit all packages to the displays
 	for (const auto& package : allSsidPackages) {
-		txFrame.dataLengthCode = package.size();
-		std::copy(package.begin(), package.end(), txFrame.data);
+		Can::Frame ssidPackageFrame;
+		ssidPackageFrame.sender = CAN_MASTER_ID;
+		ssidPackageFrame.target = CAN_BROADCAST_ID;
+		ssidPackageFrame.group = CanFrame::GROUP::WIFI;
+		ssidPackageFrame.function = CanFrame::WIFI::SET_SSID;
+		ssidPackageFrame.dataLengthCode = package.size();
+		std::copy(package.begin(), package.end(), ssidPackageFrame.data);
 
-		Core::get()->getCan()->queueFrame(txFrame);
+		Core::get()->getCan()->queueFrame(ssidPackageFrame);
 	}
 
 	/*
@@ -292,9 +360,37 @@ void Operation::setupDisplayWifi() const
 
 	// Transmit all packages to the displays
 	for (const auto& package : allPsswdPackages) {
-		txFrame.dataLengthCode = package.size();
-		std::copy(package.begin(), package.end(), txFrame.data);
+		Can::Frame passwordPackageFrame;
+		passwordPackageFrame.sender = CAN_MASTER_ID;
+		passwordPackageFrame.target = CAN_BROADCAST_ID;
+		passwordPackageFrame.group = CanFrame::GROUP::WIFI;
+		passwordPackageFrame.function = CanFrame::WIFI::SET_PASSWORD;
+		passwordPackageFrame.dataLengthCode = package.size();
+		std::copy(package.begin(), package.end(), passwordPackageFrame.data);
 
-		Core::get()->getCan()->queueFrame(txFrame);
+		Core::get()->getCan()->queueFrame(passwordPackageFrame);
 	}
+
+	/*
+	 *	Join Wifi
+	 */
+	Can::Frame joinWifiFrame;
+	joinWifiFrame.sender = CAN_MASTER_ID;
+	joinWifiFrame.target = CAN_BROADCAST_ID;
+	joinWifiFrame.group = CanFrame::GROUP::WIFI;
+	joinWifiFrame.function = CanFrame::WIFI::JOIN_WIFI;
+	joinWifiFrame.dataLengthCode = 0;
+
+	Core::get()->getCan()->queueFrame(joinWifiFrame);
+}
+
+void Operation::executeDisplayUpdate() const
+{
+	Can::Frame txFrame;
+	txFrame.sender = CAN_MASTER_ID;
+	txFrame.target = CAN_BROADCAST_ID;
+	txFrame.group = CanFrame::GROUP::WIFI;
+	txFrame.function = CanFrame::WIFI::EXECUTE_UPDATE;
+
+	Core::get()->getCan()->queueFrame(txFrame);
 }
