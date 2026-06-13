@@ -23,6 +23,7 @@ Display::Display(const gpio_num_t powerGpio, const uint8_t& canId, const uint8_t
 	powerGpio_ = powerGpio;
 	if (powerGpio_ != GPIO_NUM_NC) {
 		gpio_set_direction(powerGpio_, GPIO_MODE_OUTPUT);
+		gpio_set_level(powerGpio_, GPIO_LOW);
 	}
 
 	canId_ = canId;

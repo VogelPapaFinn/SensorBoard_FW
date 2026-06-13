@@ -408,7 +408,7 @@ esp_err_t WebInterface::websocketHandler(httpd_req_t* p_reqst)
 	return ESP_OK;
 }
 
-esp_err_t WebInterface::displayUpdateUploadHandler(httpd_req_t* p_reqst) const
+esp_err_t WebInterface::displayUpdateUploadHandler(httpd_req_t* p_reqst)
 {
 	if (displayUpdateFile_ == nullptr) {
 		ESP_LOGE(TAG, "Can't download the display update file. The destination file is a nullptr!");
@@ -451,6 +451,7 @@ esp_err_t WebInterface::displayUpdateUploadHandler(httpd_req_t* p_reqst) const
 
 	// Close the file
 	fclose(displayUpdateFile_);
+	displayUpdateFile_ = nullptr;
 
 	ESP_LOGI(TAG, "Upload of display update file successful!");
 
@@ -475,8 +476,9 @@ esp_err_t WebInterface::displayUpdateDownloadHandler(httpd_req_t* p_reqst)
 		return ESP_FAIL;
 	}
 
-	displayUpdateFile_ = filesystem->openFile("display_update.bin", "r", Filesystem::SD_CARD);
-	if (displayUpdateFile_ == nullptr) {
+	FILE* updateFile = filesystem->openFile("display_update.bin", "r", Filesystem::SD_CARD);
+
+	if (updateFile == nullptr) {
 		ESP_LOGE(TAG, "Couldn't open display update file!");
 		return ESP_FAIL;
 	}
@@ -489,18 +491,19 @@ esp_err_t WebInterface::displayUpdateDownloadHandler(httpd_req_t* p_reqst)
 
 	char chunk[1024];
 	size_t readBytes;
-	while ((readBytes = fread(chunk, 1, sizeof(chunk), displayUpdateFile_)) > 0) {
+	while ((readBytes = fread(chunk, 1, sizeof(chunk), updateFile)) > 0) {
 		if (httpd_resp_send_chunk(p_reqst, chunk, readBytes) != ESP_OK) {
-			fclose(displayUpdateFile_);
 			return ESP_FAIL;
 		}
 	}
 
 	// Signalize end of stream
 	httpd_resp_send_chunk(p_reqst, NULL, 0);
-	fclose(displayUpdateFile_);
 
-	esp_rom_printf("Download of display update file successful!\n");
+	ESP_LOGI(TAG, "Download of display update file successful!");
+
+	fclose(updateFile);
+	updateFile = nullptr;
 
 	return ESP_OK;
 }

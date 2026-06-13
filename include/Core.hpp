@@ -75,9 +75,10 @@ private:
 	QueueHandle_t mainEventQueue_ = nullptr;
 
 	std::vector<Display> displays_ = {
-		Display(GPIO_DISPLAY1, CAN_MASTER_ID + 1, 1, true),
-		Display(GPIO_DISPLAY2, CAN_MASTER_ID + 2, 0, false),
-		Display(GPIO_DISPLAY3, CAN_MASTER_ID + 3, 2, true),
+		// Actually the middle screen but as it's used for debugging it needs to be handled first!
+		Display(GPIO_DISPLAY2, CAN_MASTER_ID + 2, 0, true),
+		Display(GPIO_DISPLAY1, CAN_MASTER_ID + 1, 1, false),
+		Display(GPIO_DISPLAY3, CAN_MASTER_ID + 3, 2, false),
 	};
 
 	adc_oneshot_unit_handle_t adc1Handle_;

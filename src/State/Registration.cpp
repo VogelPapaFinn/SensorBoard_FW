@@ -4,6 +4,11 @@
 #include "Event.hpp"
 
 /*
+ *	constexpr
+ */
+const auto TAG = "Registration";
+
+/*
  *	Public Function Implementations
  */
 Registration::Registration() :
@@ -30,8 +35,6 @@ void Registration::handleCanFrame(const Can::Frame& frame)
 		return;
 	}
 
-	esp_rom_printf("Received Frame %s\n", frame.toString().c_str());
-
 	const uint8_t& expectedCanId = core_->getDisplays()->at(currDisplay).getCanId();
 
 	// Act depending on the function type
@@ -40,58 +43,15 @@ void Registration::handleCanFrame(const Can::Frame& frame)
 		{
 			const bool correctCanId = frame.sender == expectedCanId;
 			const bool correctScreen = frame.data[0] == core_->getDisplays()->at(currDisplay).getScreen();
+			const bool correctRotation = static_cast<bool>(frame.data[1]) == core_->getDisplays()->at(currDisplay).isRotated();
 
-			if (!correctCanId) {
+			if (!correctCanId || !correctScreen || !correctRotation) {
 				setId(frame.sender, expectedCanId);
-				return;
-			}
-
-			if (!correctScreen) {
 				setScreen();
-				return;
+				setRotation();
 			}
 
-			// Everything is correct
-			nextDisplay();
-			return;
-		}
-		break;
-
-		case CanFrame::SET_ID:
-		{
-			if (!frame.answer) {
-				return;
-			}
-
-			// Matches now
-			if (frame.sender == expectedCanId) {
-				confirmId(expectedCanId);
-				setScreen();
-				return;
-			}
-
-			// Still doesn't match
-			setId(frame.sender, expectedCanId);
-			return;
-		}
-		break;
-
-		case CanFrame::SET_SCREEN:
-		{
-			if (!frame.answer) {
-				return;
-			}
-
-			setRotation();
-		}
-		break;
-
-		case CanFrame::SET_ROTATION:
-		{
-			if (!frame.answer) {
-				return;
-			}
-
+			confirmConfiguration();
 			nextDisplay();
 		}
 		break;
@@ -135,7 +95,7 @@ void Registration::setId(const uint8_t& oldId, const uint8_t& newId)
 
 void Registration::nextDisplay()
 {
-	displayRegistrationCompleted();
+	ESP_LOGI(TAG, "Next Display");
 
 	if (++currDisplay >= 3) {
 		wakeUpAllDisplays();
@@ -178,13 +138,13 @@ void Registration::setRotation() const
 	Core::get()->getCan()->queueFrame(txFrame);
 }
 
-void Registration::displayRegistrationCompleted() const
+void Registration::confirmConfiguration() const
 {
 	Can::Frame txFrame;
 	txFrame.sender = CAN_MASTER_ID;
 	txFrame.target = core_->getDisplays()->at(currDisplay).getCanId();
 	txFrame.group = CanFrame::GROUP::CONFIGURATION;
-	txFrame.function = CanFrame::CONFIGURATION::REGISTRATION_COMPLETED;
+	txFrame.function = CanFrame::CONFIGURATION::CONFIRM_CONFIGURATION;
 	txFrame.answer = false;
 
 	Core::get()->getCan()->queueFrame(txFrame);

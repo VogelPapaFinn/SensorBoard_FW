@@ -203,10 +203,10 @@ void Operation::handleCanFrame(const Can::Frame& frame)
 				}
 
 				static uint8_t counter = 0;
-				ESP_LOGI(TAG, "Display %d executed update successfully!", ++counter);
+				ESP_LOGI(TAG, "Display %d executed update successfully!", frame.sender);
 
-				// Restart all displays & ourself when they are ready
-				if (counter >= 3) {
+				// Restart all displays & ourselves when they are ready
+				if (++counter >= 3) {
 					Can::Frame txFrame;
 					txFrame.sender = CAN_MASTER_ID;
 					txFrame.target = CAN_BROADCAST_ID;
@@ -217,6 +217,8 @@ void Operation::handleCanFrame(const Can::Frame& frame)
 
 					vTaskDelay(pdMS_TO_TICKS(1000));
 					esp_restart();
+				} else {
+					executeDisplayUpdate(core_->getDisplays()->at(counter).getCanId());
 				}
 			}
 			break;
@@ -278,7 +280,7 @@ void Operation::broadcastSensorsTask() const
 			equal &= frame.data[i] == lastData[i];
 		}
 
-		if (equal) {
+		if (!equal) {
 			core_->getCan()->queueFrame(frame);
 			memcpy(lastData, frame.data, frame.dataLengthCode);
 		}
@@ -384,11 +386,13 @@ void Operation::setupDisplayWifi() const
 	Core::get()->getCan()->queueFrame(joinWifiFrame);
 }
 
-void Operation::executeDisplayUpdate() const
+void Operation::executeDisplayUpdate(const uint8_t displayId) const
 {
+	ESP_LOGI(TAG, "Executing update for display with ID %d!", displayId);
+
 	Can::Frame txFrame;
 	txFrame.sender = CAN_MASTER_ID;
-	txFrame.target = CAN_BROADCAST_ID;
+	txFrame.target = displayId;
 	txFrame.group = CanFrame::GROUP::WIFI;
 	txFrame.function = CanFrame::WIFI::EXECUTE_UPDATE;
 

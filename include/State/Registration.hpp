@@ -26,7 +26,7 @@ private:
 
 	void setRotation() const;
 
-	void displayRegistrationCompleted() const;
+	void confirmConfiguration() const;
 
 	void wakeUpAllDisplays();
 

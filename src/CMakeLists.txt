@@ -1,5 +1,7 @@
 set(CMAKE_C_STANDARD 23)
 
+set(IDF_TOOLCHAIN "clang")
+
 set(FILES
         # Start of Application
         "main.cpp"

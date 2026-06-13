@@ -23,7 +23,7 @@ public:
 	 */
 	esp_err_t websocketHandler(httpd_req_t* p_reqst);
 
-	esp_err_t displayUpdateUploadHandler(httpd_req_t* p_reqst) const;
+	esp_err_t displayUpdateUploadHandler(httpd_req_t* p_reqst);
 
 	esp_err_t displayUpdateDownloadHandler(httpd_req_t* p_reqst);
 

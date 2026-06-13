@@ -62,10 +62,9 @@ static void mainEventTask(void* param)
 			{
 				if (currentState.get()->getType() == State::OPERATION) {
 					const auto operation = static_cast<Operation*>(currentState.get());
-					operation->executeDisplayUpdate();
+					operation->executeDisplayUpdate(core->getDisplays()->at(0).getCanId());
 				}
-			}
-				break;
+			} break;
 			default: ;
 		}
 	}
@@ -86,13 +85,13 @@ extern "C" void app_main(void)
 	core->setMainEventQueue(mainEventQueueHandle);
 	core->getCan()->registerRxCbQueue(&canQueueHandle);
 
-	if (xTaskCreate(canRxTask, "MainCanRxTask", 2048, NULL, 2, NULL) != pdPASS) {
+	if (xTaskCreate(canRxTask, "MainCanRxTask", 4096, NULL, 2, NULL) != pdPASS) {
 		ESP_LOGE(TAG, "Failed to create CAN RX Task. Restarting...");
 		esp_restart();
 		vTaskDelay(pdMS_TO_TICKS(100000)); // Fallback
 	}
 
-	if (xTaskCreate(mainEventTask, "MainEventTask", 2048 * 2, NULL, 2, NULL) != pdPASS) {
+	if (xTaskCreate(mainEventTask, "MainEventTask", 4096, NULL, 2, NULL) != pdPASS) {
 		ESP_LOGE(TAG, "Failed to create main event task");
 		esp_restart();
 		vTaskDelay(pdMS_TO_TICKS(100000)); // Fallback

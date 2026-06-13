@@ -24,7 +24,7 @@ public:
 	void turnOff() const;
 
 private:
-	uint8_t canId_ : 3 = 0;
+	uint8_t canId_ = 0;
 
 	uint8_t screen_ = 0;
 
