@@ -34,6 +34,7 @@ void FuelLevel::specificRead()
 	calcLevel();
 }
 
+#include "esp_log.h"
 void FuelLevel::calcLevel()
 {
 	lastResistance_ = resistance_;
@@ -48,7 +49,7 @@ void FuelLevel::calcLevel()
 		levelInPercent_ = 0;
 	}
 
-	// Dont update the fuel level if it changed too much
+	// Don't update the fuel level if it changed too much
 	const double diff = 1 - (lastResistance_ / resistance_);
 	if (diff > MAX_CHANGE_ALLOWER_P || diff < -MAX_CHANGE_ALLOWER_P) {
 		return;
@@ -56,8 +57,8 @@ void FuelLevel::calcLevel()
 
 	// Linear interpolation
 	// y = y1 + (x - x1) * ((y2 - y1) / (x2 - x1))
-	levelInPercent_ = 0.0 + (resistance_ - 110.0) * ((90.0 - 0.0) / (3.0 - 110.0));
-	if (levelInPercent_ > 100.0) {
+	levelInPercent_ = 0.0 + (resistance_ - 110.0) * ((100.0 - 0.0) / (3.0 - 110.0));
+	if (levelInPercent_ > 100) {
 		levelInPercent_ = 100;
 	}
 }
