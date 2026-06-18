@@ -8,6 +8,15 @@
 #include "esp_timer.h"
 
 /*
+ *	Private typedefs
+ */
+typedef struct
+{
+	uint16_t freq;
+	double multiplier;
+} FrequencyMultiplierTuple_t;
+
+/*
  *	constexpr
  */
 constexpr auto TAG = "Rpm";
@@ -16,12 +25,16 @@ constexpr float MPH_TO_KMH = 1.60934;
 
 constexpr uint16_t MAX_RPM = 8000;
 
+constexpr FrequencyMultiplierTuple_t FREQ_MULTIPLIER_TUPLES[] = {
+	{8, 50},	  {11, 45.45},	{17, 41.18},  {25, 40.0},	{56, 34.48},  {92, 32.61},
+	{123, 32.52}, {157, 31.85}, {188, 31.91}, {220, 31.82}, {262, 30.54},
+};
+constexpr uint8_t AMOUNT_FREQ_MULTIPLIER_TUPLES = sizeof(FREQ_MULTIPLIER_TUPLES) / sizeof(FREQ_MULTIPLIER_TUPLES[0]);
+
 /*
  *	Public Function Implementations
  */
-Rpm::Rpm() : ActiveSensor(GPIO_NUM_9, GPIO_INTR_NEGEDGE)
-{
-}
+Rpm::Rpm() : ActiveSensor(GPIO_NUM_9, GPIO_INTR_NEGEDGE) {}
 
 int Rpm::get()
 {
@@ -46,7 +59,7 @@ void Rpm::cb()
 
 /*
  *	Private Functions Implementations
-*/
+ */
 void Rpm::calculateRpm()
 {
 	if (hz_ <= 0) {
@@ -55,38 +68,30 @@ void Rpm::calculateRpm()
 
 	double multiplier = 30.0;
 
-	if (hz_ <= 8) {
-		multiplier = 50.0;
+	// Frequency is lower than the first data point
+	if (hz_ <= FREQ_MULTIPLIER_TUPLES[0].freq) {
+		multiplier = FREQ_MULTIPLIER_TUPLES[0].multiplier;
 	}
-	else if (hz_ <= 11) {
-		multiplier = 45.45;
+
+	// Its Frequency is higher than the last data point
+	else if (hz_ >= FREQ_MULTIPLIER_TUPLES[AMOUNT_FREQ_MULTIPLIER_TUPLES - 1].freq) {
+		multiplier = FREQ_MULTIPLIER_TUPLES[AMOUNT_FREQ_MULTIPLIER_TUPLES - 1].multiplier;
 	}
-	else if (hz_ <= 17) {
-		multiplier = 41.18;
-	}
-	else if (hz_ <= 25) {
-		multiplier = 40.0;
-	}
-	else if (hz_ <= 56) {
-		multiplier = 34.48;
-	}
-	else if (hz_ <= 92) {
-		multiplier = 32.61;
-	}
-	else if (hz_ <= 123) {
-		multiplier = 32.52;
-	}
-	else if (hz_ <= 157) {
-		multiplier = 31.85;
-	}
-	else if (hz_ <= 188) {
-		multiplier = 31.91;
-	}
-	else if (hz_ <= 220) {
-		multiplier = 31.82;
-	}
-	else if (hz_ <= 262) {
-		multiplier = 30.54;
+
+	// Interpolate the multiplier
+	else {
+		for (uint8_t i = 0; i < AMOUNT_FREQ_MULTIPLIER_TUPLES; i++) {
+			if (hz_ >= FREQ_MULTIPLIER_TUPLES[i].freq && hz_ <= FREQ_MULTIPLIER_TUPLES[i + 1].freq) {
+				const double x0 = FREQ_MULTIPLIER_TUPLES[i].freq;
+				const double y0 = FREQ_MULTIPLIER_TUPLES[i].multiplier;
+				const double x1 = FREQ_MULTIPLIER_TUPLES[i + 1].freq;
+				const double y1 = FREQ_MULTIPLIER_TUPLES[i + 1].multiplier;
+
+				// Linear interpolation see https://en.wikipedia.org/wiki/Linear_interpolation
+				multiplier = y0 + (hz_ - x0) * ((y1 - y0) / (x1 - x0));
+				break;
+			}
+		}
 	}
 
 	// Calculate the rpm and return it
@@ -95,4 +100,3 @@ void Rpm::calculateRpm()
 		rpm_ = 0;
 	}
 }
-
