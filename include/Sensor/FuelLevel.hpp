@@ -23,5 +23,6 @@ protected:
 	 */
 	int levelInPercent_ = 0;
 
+	double lastResistance_ = 0.0;
 	double resistance_ = 0.0;
 };
