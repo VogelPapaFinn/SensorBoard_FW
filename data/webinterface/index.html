@@ -23,28 +23,17 @@
     </div>
 
     <div class="dashboard-grid" id="grid-container">
-        <article class="tile-4x4">
-            <header><strong>Combined Sensor Oscilloscope</strong></header>
-            <div class="chart-wrapper" id="wrapper">
-                <canvas id="global-canvas"></canvas>
-            </div>
-        </article>
+        <!-- <article class="tile-4x4"> -->
+        <!--     <header><strong>Combined Sensor Oscilloscope</strong></header> -->
+        <!--     <div class="chart-wrapper" id="wrapper"> -->
+        <!--         <canvas id="global-canvas"></canvas> -->
+        <!--     </div> -->
+        <!-- </article> -->
 
         <article class="tile-4x1">
             <header>Add Sensor</header>
             <select id="sensor-select"></select>
             <button id="add-sensor-btn">Add</button>
-        </article>
-
-        <article class="tile-2x2">
-            <div class="tile-header" style="display: flex; justify-content: space-between; align-items: center;">
-                <header style="margin: 0; border: none; padding: 0;">Kachel 1</header>
-                <button class="delete-btn outline secondary" style="width: auto; margin: 0; padding: 2px 8px;">✕
-                </button>
-            </div>
-            <div class="chart-wrapper">
-                <canvas id="canvas"></canvas>
-            </div>
         </article>
 
     </div>
@@ -109,12 +98,13 @@
 
             newTile.querySelector('.delete-btn').addEventListener('click', () => {
                 websocket.send('remove-sensor:' + sensorId);
+                delete sensorSeriesMap[sensorId];
                 newTile.remove();
             });
 
             gridContainer.appendChild(newTile);
 
-            initSmallScope(newTile.querySelector('.small-smoothie-chart'))
+            initSmallScope(newTile.querySelector('.small-smoothie-chart'), sensorId)
 
             websocket.send('add-sensor:' + sensorId);
         });

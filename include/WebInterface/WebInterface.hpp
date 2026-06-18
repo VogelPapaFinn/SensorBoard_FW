@@ -3,6 +3,7 @@
 // Project includes
 #include "WifiHost.hpp"
 #include "WifiJoin.hpp"
+#include "Driver/KLine.hpp"
 
 // espidf includes
 #include "esp_http_server.h"
@@ -17,6 +18,8 @@ public:
 	std::unordered_map<int, std::vector<uint16_t>>& getTrackedSensors();
 
 	SemaphoreHandle_t& getSensorsMutex();
+
+	KLine* getKLine();
 
 	/*
 	 *	Private ISRs
@@ -44,7 +47,9 @@ private:
 
 	SemaphoreHandle_t sensorsMutex_;
 	std::unordered_map<int, std::vector<uint16_t>> trackedSensors_;
-	TaskHandle_t updateSensorsDataTask_;
+	TaskHandle_t updateSensorsDataTask_ = nullptr;
 
 	FILE* displayUpdateFile_ = nullptr;
+
+	KLine kline_;
 };

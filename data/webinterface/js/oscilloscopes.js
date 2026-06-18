@@ -1,4 +1,6 @@
-function initSmallScope(canvas) {
+const sensorSeriesMap = {};
+
+function initSmallScope(canvas, sensorId) {
     var chart = new SmoothieChart({
             responsive: true,
             millisPerPixel: 71,
@@ -10,4 +12,8 @@ function initSmallScope(canvas) {
 
     chart.addTimeSeries(series, {lineWidth: 2, strokeStyle: '#ff0000'});
     chart.streamTo(canvas, 500);
+
+    if(sensorId) {
+        sensorSeriesMap[sensorId] = series;
+    }
 }

@@ -182,6 +182,7 @@ static esp_err_t staticDisplayUpdateDownloadHandler(httpd_req_t* p_reqst)
 static void updateSensorsTask(void* param)
 {
 	if (param == nullptr) {
+		ESP_LOGE("updateSensorsTask", "Killed itself");
 		vTaskDelete(nullptr);
 	}
 
@@ -194,6 +195,10 @@ static void updateSensorsTask(void* param)
 		auto trackedSensorsMap = web->getTrackedSensors();
 		for (auto& fdPair : trackedSensorsMap) {
 			auto& trackedSensorsVector = fdPair.second;
+
+			for (auto& sensor : trackedSensorsVector) {
+				web->getKLine()->readPid(sensor);
+			}
 
 			// JSON Header
 			std::stringstream output;
@@ -241,6 +246,10 @@ WebInterface::WebInterface()
 		return;
 	}
 
+	/*
+	 *	Setup URI's
+	 */
+	// For web requests
 	const httpd_uri_t websocketUri = {
 		.uri = "/ws",
 		.method = HTTP_GET,
@@ -253,6 +262,7 @@ WebInterface::WebInterface()
 		return;
 	}
 
+	// Uploading of display update file
 	const httpd_uri_t updateFileUploadUri = {
 		.uri = "/display-update-upload",
 		.method = HTTP_POST,
@@ -264,6 +274,7 @@ WebInterface::WebInterface()
 		return;
 	}
 
+	// Downloading of display update file
 	const httpd_uri_t updateFileDownloadUri = {
 		.uri = "/display-update.bin",
 		.method = HTTP_GET,
@@ -279,6 +290,11 @@ WebInterface::WebInterface()
 		ESP_LOGE(TAG, "Failed to register File URI");
 		return;
 	}
+
+	/*
+	 *	Read ECU ID
+	 */
+	kline_.readEcuId();
 
 	ESP_LOGI(TAG, "Initialized");
 	initialized_ = true;
@@ -310,6 +326,11 @@ std::unordered_map<int, std::vector<uint16_t>>& WebInterface::getTrackedSensors(
 SemaphoreHandle_t& WebInterface::getSensorsMutex()
 {
 	return sensorsMutex_;
+}
+
+KLine* WebInterface::getKLine()
+{
+	return &kline_;
 }
 
 /*
@@ -378,12 +399,14 @@ esp_err_t WebInterface::websocketHandler(httpd_req_t* p_reqst)
 			}
 		}
 
-		if (updateSensorsDataTask_ == nullptr) {
-			return ESP_OK;
-		}
+		if (trackedSensors_.empty()) {
+			if (updateSensorsDataTask_ == nullptr) {
+				return ESP_OK;
+			}
 
-		vTaskDelete(updateSensorsDataTask_);
-		updateSensorsDataTask_ = nullptr;
+			vTaskDelete(updateSensorsDataTask_);
+			updateSensorsDataTask_ = nullptr;
+		}
 
 		return ESP_OK;
 	}

@@ -22,6 +22,16 @@ function initWebSocket() {
             responseFetchSensors(json)
         }
 
+        else if(json.type === "update-sensors") {
+            const timestamp = new Date().getTime();
+
+            json.sensors.forEach(sensor => {
+                const series = sensorSeriesMap[sensor.id];
+                if (series) {
+                    series.append(timestamp, parseFloat(sensor.value));
+                }
+            });
+        }
     };
 
     websocket.onclose = () => {

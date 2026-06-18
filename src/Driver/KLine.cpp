@@ -91,7 +91,7 @@ void uartRxTask(void* param)
 				}
 
 				if (ignore) {
-					ESP_LOGI(TAG, "Ignored message with %d bytes", event.size);
+					// ESP_LOGI(TAG, "Ignored message with %d bytes", event.size);
 					continue;
 				}
 
@@ -110,7 +110,8 @@ void uartRxTask(void* param)
 					// Debug logging p0
 					if (ECU_SENSORS.contains(pid)) {
 						ECU_SENSORS[pid].rawValue = data;
-						ESP_LOGI(TAG, "Updated Sensor with name %s to %d", ECU_SENSORS[pid].name.c_str(), data);
+
+						// ESP_LOGI(TAG, "Updated Sensor with name %s to %d", ECU_SENSORS[pid].name.c_str(), data);
 					}
 				}
 
@@ -209,7 +210,7 @@ void KLine::readPid(const uint16_t pid)
 		stream << std::hex << static_cast<unsigned int>(data[i]);
 		dataStr += "0x" + std::string("00").substr(stream.str().size()) + stream.str() + ", ";
 	}
-	ESP_LOGI(TAG, "Send %d bytes: %s", 7, dataStr.c_str());
+	// ESP_LOGI(TAG, "Send %d bytes: %s", 7, dataStr.c_str());
 }
 
 QueueHandle_t KLine::getQueue() const
@@ -237,8 +238,6 @@ uint8_t* KLine::getLastMessage()
 */
 void KLine::send(uint8_t* data, const uint8_t length, const bool calcChecksum)
 {
-	if (!initialized_) { return; }
-
 	if (calcChecksum) {
 		data[length - 1] = calculateChecksum(data, length);
 	}

@@ -61,13 +61,14 @@ struct EcuSensor
  *	Public ECU Sensor Map
  */
 // TODO: Find out the bits of the different bitmask entries
-static std::unordered_map<uint16_t, EcuSensor> ECU_SENSORS{
+inline std::unordered_map<uint16_t, EcuSensor> ECU_SENSORS{
 	{ALTERNATOR_LOAD_P,
 	 EcuSensor{.id = ALTERNATOR_LOAD_P, .name = "Alternator - Load", .responseByteCount = 1, .unit = UNIT_PERCENT,
 	           .convertRawValue = [](const uint16_t raw) { return raw / 2.55; }}},
 
 	{ALTERNATOR_DESIRED_VOLTAGE,
-	 EcuSensor{.id = ALTERNATOR_DESIRED_VOLTAGE, .name = "Alternator - Desired Voltage", .responseByteCount = 1, .unit = UNIT_VOLT,
+	 EcuSensor{.id = ALTERNATOR_DESIRED_VOLTAGE, .name = "Alternator - Desired Voltage", .responseByteCount = 1,
+	           .unit = UNIT_VOLT,
 	           .convertRawValue = [](const uint16_t raw) { return raw / 10; }}},
 
 	{CABIN_FAN_ON,
@@ -79,7 +80,8 @@ static std::unordered_map<uint16_t, EcuSensor> ECU_SENSORS{
 	           .convertRawValue = BITMASK_FUNCTION}},
 
 	{REAR_DEFROSTER_ON,
-	 EcuSensor{.id = REAR_DEFROSTER_ON, .name = "Rear Window Defroster - On", .responseByteCount = 1, .bitInMask = 0b00000001,
+	 EcuSensor{.id = REAR_DEFROSTER_ON, .name = "Rear Window Defroster - On", .responseByteCount = 1,
+	           .bitInMask = 0b00000001,
 	           .convertRawValue = BITMASK_FUNCTION}},
 
 	{DAYTIME_LIGHTS_ON,
@@ -99,15 +101,18 @@ static std::unordered_map<uint16_t, EcuSensor> ECU_SENSORS{
 	           .convertRawValue = BITMASK_FUNCTION}},
 
 	{FAN_SPEED_SLOW,
-	 EcuSensor{.id = FAN_SPEED_SLOW, .name = "Cooling Fan Speed - On, Slow Speed", .responseByteCount = 1, .bitInMask = 0b00000001,
+	 EcuSensor{.id = FAN_SPEED_SLOW, .name = "Cooling Fan Speed - On, Slow Speed", .responseByteCount = 1,
+	           .bitInMask = 0b00000001,
 	           .convertRawValue = BITMASK_FUNCTION}},
 
 	{FAN_SPEED_MEDIUM,
-	 EcuSensor{.id = FAN_SPEED_MEDIUM, .name = "Cooling Fan Speed - On, Medium Speed", .responseByteCount = 1, .bitInMask = 0b00000001,
+	 EcuSensor{.id = FAN_SPEED_MEDIUM, .name = "Cooling Fan Speed - On, Medium Speed", .responseByteCount = 1,
+	           .bitInMask = 0b00000001,
 	           .convertRawValue = BITMASK_FUNCTION}},
 
 	{FAN_SPEED_FAST,
-	 EcuSensor{.id = FAN_SPEED_FAST, .name = "Cooling Fan Speed - On, Fast Speed", .responseByteCount = 1, .bitInMask = 0b00000001,
+	 EcuSensor{.id = FAN_SPEED_FAST, .name = "Cooling Fan Speed - On, Fast Speed", .responseByteCount = 1,
+	           .bitInMask = 0b00000001,
 	           .convertRawValue = BITMASK_FUNCTION}},
 
 	{FUEL_PUMP_ON,
@@ -120,7 +125,8 @@ static std::unordered_map<uint16_t, EcuSensor> ECU_SENSORS{
 	           .convertRawValue = [](const uint16_t raw) { return raw / 1000.0; }}},
 
 	{LOW_VOLTAGE_LIGHT_ON,
-	 EcuSensor{.id = LOW_VOLTAGE_LIGHT_ON, .name = "Battery - Low Voltage (Light)", .responseByteCount = 1, .bitInMask = 0b00000001,
+	 EcuSensor{.id = LOW_VOLTAGE_LIGHT_ON, .name = "Battery - Low Voltage (Light)", .responseByteCount = 1,
+	           .bitInMask = 0b00000001,
 	           .convertRawValue = BITMASK_FUNCTION}},
 
 	{HEADLIGHT_LEFT_ON,
@@ -128,7 +134,8 @@ static std::unordered_map<uint16_t, EcuSensor> ECU_SENSORS{
 	           .convertRawValue = BITMASK_FUNCTION}},
 
 	{HEADLIGHT_RIGHT_ON,
-	 EcuSensor{.id = HEADLIGHT_RIGHT_ON, .name = "Headlight Right - On", .responseByteCount = 1, .bitInMask = 0b00000001,
+	 EcuSensor{.id = HEADLIGHT_RIGHT_ON, .name = "Headlight Right - On", .responseByteCount = 1,
+	           .bitInMask = 0b00000001,
 	           .convertRawValue = BITMASK_FUNCTION}},
 
 	{IDLE_BYPASS_MS,
@@ -157,7 +164,8 @@ static std::unordered_map<uint16_t, EcuSensor> ECU_SENSORS{
 	           .convertRawValue = BITMASK_FUNCTION}},
 
 	{CHECK_ENGINE_LIGHT,
-	 EcuSensor{.id = CHECK_ENGINE_LIGHT, .name = "Engine - Check Engine Light", .responseByteCount = 1, .bitInMask = 0b00000001,
+	 EcuSensor{.id = CHECK_ENGINE_LIGHT, .name = "Engine - Check Engine Light", .responseByteCount = 1,
+	           .bitInMask = 0b00000001,
 	           .convertRawValue = BITMASK_FUNCTION}},
 
 	{PRE_CAT_LAMBDA_V,
@@ -165,7 +173,8 @@ static std::unordered_map<uint16_t, EcuSensor> ECU_SENSORS{
 	           .convertRawValue = [](const uint16_t raw) { return raw * (5 / 1023); }}},
 
 	{PRESSURE_SWITCH_POWER_STEERING_ON,
-	 EcuSensor{.id = PRESSURE_SWITCH_POWER_STEERING_ON, .name = "Power Steering - Pressure Switch On", .responseByteCount = 1,
+	 EcuSensor{.id = PRESSURE_SWITCH_POWER_STEERING_ON, .name = "Power Steering - Pressure Switch On",
+	           .responseByteCount = 1,
 	           .convertRawValue = [](const uint16_t raw) { return raw > 0 ? 1.0 : 0.0; }}},
 
 	{RPM,
@@ -177,7 +186,8 @@ static std::unordered_map<uint16_t, EcuSensor> ECU_SENSORS{
 	           .convertRawValue = [](const uint16_t raw) { return raw; }}},
 
 	{ADVANCING_IGNITION_DEG,
-	 EcuSensor{.id = ADVANCING_IGNITION_DEG, .name = "Ignition Timing - Advancing", .responseByteCount = 2, .unit = UNIT_DEGREE,
+	 EcuSensor{.id = ADVANCING_IGNITION_DEG, .name = "Ignition Timing - Advancing", .responseByteCount = 2,
+	           .unit = UNIT_DEGREE,
 	           .convertRawValue = [](const uint16_t raw) { return (raw - 255) / 12.8; }}},
 
 	{IMMOBILIZER_ON,
