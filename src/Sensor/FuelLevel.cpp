@@ -37,11 +37,13 @@ int FuelLevel::get()
 {
 	// Calculate the level
 	calcLevel();
-	lastLevels_.sort();
+
+	auto sortedLevels = lastLevels_;
+	sortedLevels.sort();
 
 	// Get the element in the middle
-	auto it = lastLevels_.begin();
-	std::advance(it, 5);
+	auto it = sortedLevels.begin();
+	std::advance(it, 50);
 
 	return *it;
 }

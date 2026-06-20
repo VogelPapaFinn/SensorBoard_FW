@@ -24,7 +24,7 @@ protected:
 	/*
 	 *	Private Variables
 	 */
-	std::list<uint8_t> lastLevels_ = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+	std::list<uint8_t> lastLevels_ = std::list<uint8_t>(100, 0);
 
 	double resistance_ = 0.0;
 };

@@ -67,9 +67,11 @@ int Rpm::get()
 	 */
 	lastRpm_.pop_front();
 	lastRpm_.push_back(rpm);
-	lastRpm_.sort();
 
-	return *(++lastRpm_.begin());
+	auto sortedRpmList = lastRpm_;
+	sortedRpmList.sort();
+
+	return *(++sortedRpmList.begin());
 }
 
 void Rpm::cb()
