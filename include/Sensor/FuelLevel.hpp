@@ -3,6 +3,9 @@
 // Project includes
 #include "PassiveSensor.hpp"
 
+// C++ includes
+#include <list>
+
 class FuelLevel : public PassiveSensor
 {
 public:
@@ -21,8 +24,7 @@ protected:
 	/*
 	 *	Private Variables
 	 */
-	int levelInPercent_ = 0;
+	std::list<uint8_t> lastLevels_ = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-	double lastResistance_ = 0.0;
 	double resistance_ = 0.0;
 };

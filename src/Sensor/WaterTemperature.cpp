@@ -1,5 +1,8 @@
 #include "Sensor/WaterTemperature.hpp"
 
+// C++ includes
+#include <iterator>
+
 /*
  *	Private typedefs
  */
@@ -23,7 +26,7 @@ constexpr TempResistanceTuple_t tempResistanceTuples[] = {
 	{75, 371},   {80, 319},   {85, 276},   {90, 239},   {95, 208},
 	{100, 181},  {105, 158},  {110, 139},  {115, 122},  {120, 108}
 };
-constexpr uint8_t amountResistanceTuples = sizeof(tempResistanceTuples) / sizeof(tempResistanceTuples[0]);
+constexpr uint8_t amountResistanceTuples = std::size(tempResistanceTuples);
 
 /*
  *	Public Function Implementations

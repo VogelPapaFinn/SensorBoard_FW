@@ -3,6 +3,15 @@
 #include <chrono>
 
 /*
+ *	Private typedefs
+ */
+typedef struct
+{
+	uint8_t level; // %
+	float r;
+} LevelResistanceTuple_t;
+
+/*
  *	constexpr
  */
 constexpr auto TAG = "FuelLevel";
@@ -10,6 +19,11 @@ constexpr auto TAG = "FuelLevel";
 constexpr uint16_t R1 = 240;
 
 constexpr double MAX_CHANGE_ALLOWER_P = 0.025; // 2.5%
+
+constexpr LevelResistanceTuple_t levelResistanceTuples[] = {
+	{100, 3},   {75, 15.8},   {50, 32.5},  {25, 64.2},  {0, 110}
+};
+constexpr uint8_t amountResistanceTuples = std::size(levelResistanceTuples);
 
 /*
  *	Public Function Implementations
@@ -21,7 +35,15 @@ FuelLevel::FuelLevel(adc_oneshot_unit_handle_t* adc) :
 
 int FuelLevel::get()
 {
-	return levelInPercent_;
+	// Calculate the level
+	calcLevel();
+	lastLevels_.sort();
+
+	// Get the element in the middle
+	auto it = lastLevels_.begin();
+	std::advance(it, 5);
+
+	return *it;
 }
 
 /*
@@ -30,35 +52,41 @@ int FuelLevel::get()
 void FuelLevel::specificRead()
 {
 	resistance_ = calcVoltageDividerR2(voltage_, R1);
-
-	calcLevel();
 }
 
-#include "esp_log.h"
 void FuelLevel::calcLevel()
 {
-	lastResistance_ = resistance_;
+	int levelInPercent = 0;
 
 	// R too low
-	if (resistance_ < 3.0) {
-		levelInPercent_ = 100;
+	if (resistance_ < levelResistanceTuples[0].r) {
+		levelInPercent = 100;
 	}
 
 	// R too high
-	if (resistance_ > 110.0) {
-		levelInPercent_ = 0;
+	if (resistance_ > levelResistanceTuples[amountResistanceTuples - 1].r) {
+		levelInPercent = 0;
 	}
 
-	// Don't update the fuel level if it changed too much
-	const double diff = 1 - (lastResistance_ / resistance_);
-	if (diff > MAX_CHANGE_ALLOWER_P || diff < -MAX_CHANGE_ALLOWER_P) {
-		return;
+	// Iterate through all entries
+	for (int i = 0; i < amountResistanceTuples - 1; i++) {
+		const uint16_t r1 = levelResistanceTuples[i].r;
+		const uint16_t r2 = levelResistanceTuples[i + 1].r;
+
+		// Check if the resistance is between this and the next entry
+		if (resistance_ >= r1 && resistance_ <= r2) {
+			const uint8_t level1 = levelResistanceTuples[i].level;
+			const uint8_t level2 = levelResistanceTuples[i + 1].level;
+
+			// Calculate the value with linear interpolation
+			// y = y1 + (x - x1) * (y2 - y1) / (x2 - x1)
+			levelInPercent = level1 + ((resistance_ - r1) * ((level2 - level1)) / (r2 - r1));
+
+			break;
+		}
 	}
 
-	// Linear interpolation
-	// y = y1 + (x - x1) * ((y2 - y1) / (x2 - x1))
-	levelInPercent_ = 0.0 + (resistance_ - 110.0) * ((100.0 - 0.0) / (3.0 - 110.0));
-	if (levelInPercent_ > 100) {
-		levelInPercent_ = 100;
-	}
+	// Track the value
+	lastLevels_.pop_front();
+	lastLevels_.push_back(levelInPercent);
 }

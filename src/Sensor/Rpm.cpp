@@ -33,10 +33,11 @@ Rpm::Rpm() : ActiveSensor(GPIO_NUM_9, GPIO_INTR_NEGEDGE) {}
 int Rpm::get()
 {
 	// Detect engine shutoff
+	uint16_t rpm = 0;
 	if (esp_timer_get_time() - fallingEdgeTime_ >= 300000) { // 300ms
-		rpm_ = 0;
+		rpm = 0;
 		hz_ = 0;
-		return rpm_;
+		return rpm;
 	}
 
 	portENTER_CRITICAL_ISR(&mux_);
@@ -56,7 +57,7 @@ int Rpm::get()
 	}
 
 	// Calculate the rpm
-	uint16_t rpm = static_cast<uint16_t>((hz_ * 60.0f) / 2.0f);
+	rpm = static_cast<uint16_t>((hz_ * 60.0f) / 2.0f);
 	if (rpm > MAX_RPM) {
 		rpm = 0;
 	}
