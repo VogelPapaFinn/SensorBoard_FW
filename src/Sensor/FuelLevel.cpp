@@ -17,7 +17,6 @@ typedef struct
  */
 constexpr auto TAG = "FuelLevel";
 constexpr uint16_t R1 = 240;
-constexpr double MAX_CHANGE_ALLOWER_P = 0.025; // 2.5%
 constexpr float NEW_VALUES_DAMPENER = 0.01f;
 constexpr LevelResistanceTuple_t LEVEL_RESISTANCE_TUPLES[] = {
 	{100, 3},   {75, 15.8},   {50, 32.5},  {25, 64.2},  {0, 110}
