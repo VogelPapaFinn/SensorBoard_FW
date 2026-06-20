@@ -1,6 +1,7 @@
 #include "Sensor/FuelLevel.hpp"
 
-#include <chrono>
+// C++ includes
+#include <cmath>
 
 /*
  *	Private typedefs
@@ -15,15 +16,13 @@ typedef struct
  *	constexpr
  */
 constexpr auto TAG = "FuelLevel";
-
 constexpr uint16_t R1 = 240;
-
 constexpr double MAX_CHANGE_ALLOWER_P = 0.025; // 2.5%
-
-constexpr LevelResistanceTuple_t levelResistanceTuples[] = {
+constexpr float NEW_VALUES_DAMPENER = 0.01f;
+constexpr LevelResistanceTuple_t LEVEL_RESISTANCE_TUPLES[] = {
 	{100, 3},   {75, 15.8},   {50, 32.5},  {25, 64.2},  {0, 110}
 };
-constexpr uint8_t amountResistanceTuples = std::size(levelResistanceTuples);
+constexpr uint8_t AMOUNT_LEVEL_TUPLES = std::size(LEVEL_RESISTANCE_TUPLES);
 
 /*
  *	Public Function Implementations
@@ -38,14 +37,29 @@ int FuelLevel::get()
 	// Calculate the level
 	calcLevel();
 
+	/*
+	 *	Median Filter
+	 */
 	auto sortedLevels = lastLevels_;
 	sortedLevels.sort();
 
 	// Get the element in the middle
 	auto it = sortedLevels.begin();
-	std::advance(it, 50);
+	std::advance(it, 10);
+	const float median = *it;
 
-	return *it;
+	/*
+	 *	Dampening new values
+	 */
+	// Initial value
+	if (smoothedValue_ < 0) {
+		smoothedValue_ = median;
+	}
+
+	// Calculate the dampened value
+	smoothedValue_ = (NEW_VALUES_DAMPENER * median) + ((1.0f - NEW_VALUES_DAMPENER) * smoothedValue_);
+
+	return std::round(static_cast<int>(smoothedValue_));
 }
 
 /*
@@ -61,24 +75,24 @@ void FuelLevel::calcLevel()
 	int levelInPercent = 0;
 
 	// R too low
-	if (resistance_ < levelResistanceTuples[0].r) {
+	if (resistance_ < LEVEL_RESISTANCE_TUPLES[0].r) {
 		levelInPercent = 100;
 	}
 
 	// R too high
-	if (resistance_ > levelResistanceTuples[amountResistanceTuples - 1].r) {
+	if (resistance_ > LEVEL_RESISTANCE_TUPLES[AMOUNT_LEVEL_TUPLES - 1].r) {
 		levelInPercent = 0;
 	}
 
 	// Iterate through all entries
-	for (int i = 0; i < amountResistanceTuples - 1; i++) {
-		const uint16_t r1 = levelResistanceTuples[i].r;
-		const uint16_t r2 = levelResistanceTuples[i + 1].r;
+	for (int i = 0; i < AMOUNT_LEVEL_TUPLES - 1; i++) {
+		const uint16_t r1 = LEVEL_RESISTANCE_TUPLES[i].r;
+		const uint16_t r2 = LEVEL_RESISTANCE_TUPLES[i + 1].r;
 
 		// Check if the resistance is between this and the next entry
 		if (resistance_ >= r1 && resistance_ <= r2) {
-			const uint8_t level1 = levelResistanceTuples[i].level;
-			const uint8_t level2 = levelResistanceTuples[i + 1].level;
+			const uint8_t level1 = LEVEL_RESISTANCE_TUPLES[i].level;
+			const uint8_t level2 = LEVEL_RESISTANCE_TUPLES[i + 1].level;
 
 			// Calculate the value with linear interpolation
 			// y = y1 + (x - x1) * (y2 - y1) / (x2 - x1)

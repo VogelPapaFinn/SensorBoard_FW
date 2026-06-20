@@ -24,7 +24,9 @@ protected:
 	/*
 	 *	Private Variables
 	 */
-	std::list<uint8_t> lastLevels_ = std::list<uint8_t>(100, 0);
+	std::list<uint8_t> lastLevels_ = std::list<uint8_t>(21, 0);
 
 	double resistance_ = 0.0;
+
+	float smoothedValue_ = -1.0f;
 };

@@ -8,21 +8,10 @@
 #include "esp_timer.h"
 
 /*
- *	Private typedefs
- */
-typedef struct
-{
-	uint16_t freq;
-	double multiplier;
-} FrequencyMultiplierTuple_t;
-
-/*
  *	constexpr
  */
 constexpr auto TAG = "Rpm";
-
 constexpr float MPH_TO_KMH = 1.60934;
-
 constexpr uint16_t MAX_RPM = 8000;
 
 /*
