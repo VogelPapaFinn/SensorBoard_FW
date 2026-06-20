@@ -90,11 +90,11 @@ inline std::unordered_map<uint16_t, EcuSensor> ECU_SENSORS{
 
 	{COOLANT_V,
 	 EcuSensor{.id = COOLANT_V, .name = "Coolant - Sensor Voltage", .responseByteCount = 2, .unit = UNIT_VOLT,
-	           .convertRawValue = [](const uint16_t raw) { return raw * (5 / 1023); }}},
+	           .convertRawValue = [](const uint16_t raw) { return static_cast<double>(raw) * (5.0 / 1023.0); }}},
 
 	{COOLANT_C,
-	 EcuSensor{.id = COOLANT_C, .name = "Alternator - Temperature", .responseByteCount = 1, .unit = UNIT_CELSIUS,
-	           .convertRawValue = [](const uint16_t raw) { return raw - 40; }}},
+	 EcuSensor{.id = COOLANT_C, .name = "Coolant - Degree", .responseByteCount = 1, .unit = UNIT_CELSIUS,
+	           .convertRawValue = [](const uint16_t raw) { return (raw - 32 - 32) / 1.8; }}},
 
 	{EGR_ON,
 	 EcuSensor{.id = EGR_ON, .name = "EGR - On", .responseByteCount = 1, .bitInMask = 0b00000001,
