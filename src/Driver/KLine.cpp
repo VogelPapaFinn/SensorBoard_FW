@@ -1,271 +1,1 @@
-#include "Driver/KLine.hpp"
-
-// C++ includes
-#include <string>
-#include <bits/stdc++.h>
-
-// Project includes
-#include "Global.h"
-#include "Driver/EcuSensors.hpp"
-
-// espidf include
-#include "driver/gpio.h"
-#include "driver/uart.h"
-#include "esp_log.h"
-
-/*
- *	constexpr
- */
-constexpr auto TAG = "KLine";
-
-constexpr uart_port_t UART_PORT = UART_NUM_2;
-constexpr uint16_t BUFFER_SIZE_RX = 2048;
-constexpr uint16_t BUFFER_SIZE_TX = 2048;
-constexpr uint16_t INTERNAL_BUFFER_SIZE_RX = 64;
-constexpr uint8_t UART_QUEUE_SIZE = 10;
-constexpr uint16_t UART_BAUD_RATE = 10400;
-constexpr uart_config_t UART_CONFIG = {
-	.baud_rate = 10400,
-	.data_bits = UART_DATA_8_BITS,
-	.parity = UART_PARITY_DISABLE,
-	.stop_bits = UART_STOP_BITS_1,
-	.flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-	.rx_flow_ctrl_thresh = 122,
-};
-
-constexpr gpio_num_t GPIO_RX = GPIO_NUM_12;
-constexpr gpio_num_t GPIO_TX = GPIO_NUM_11;
-
-constexpr uint8_t COMMAND = 0x04;
-constexpr uint8_t ADDR_ECU = 0x10;
-constexpr uint8_t ADDR_PCB = 0xF5;
-constexpr uint8_t SID_RDBI = 0x22; // Read Data By Identifier
-constexpr uint8_t SID_READ_FLASH = 0x23; // Unknown SID, but used for reading the ECU ID
-constexpr uint8_t READ_SENSOR = 0x17;
-
-constexpr uint32_t ECU_ID_ADDR = 0x010006;
-
-/*
- *	Private Static Tasks
- */
-void uartRxTask(void* param)
-{
-	if (param == nullptr) {
-		vTaskDelete(nullptr);
-	}
-
-	KLine* kline = static_cast<KLine*>(param);
-	auto queue = kline->getQueue();
-
-	uart_event_t event;
-	uint8_t buffer[INTERNAL_BUFFER_SIZE_RX] = {0x00};
-
-	while (true) {
-		if (xQueueReceive(queue, &event, portMAX_DELAY) == pdFALSE) {
-			continue;
-		}
-
-		// Act depending on the event type
-		switch (event.type) {
-			// Data received
-			case UART_DATA:
-			{
-				uint8_t bytesRead = uart_read_bytes(UART_PORT, buffer, event.size, portMAX_DELAY);
-				if (bytesRead <= 0) {
-					continue;
-				}
-
-				// Check if it's a message we send, because we can ignore them
-				bool ignore = false;
-				if (xSemaphoreTake(kline->getLastMessageMutex(), portMAX_DELAY) != pdFALSE) {
-					const auto& lastMessageLength = kline->getLastMessageLength();
-					if (lastMessageLength == bytesRead) {
-						const auto& lastMessage = kline->getLastMessage();
-
-						for (uint8_t i = 0; i < bytesRead; i++) {
-							ignore |= *(lastMessage + i) == buffer[i];
-						}
-					}
-
-					xSemaphoreGive(kline->getLastMessageMutex());
-				}
-
-				if (ignore) {
-					// ESP_LOGI(TAG, "Ignored message with %d bytes", event.size);
-					continue;
-				}
-
-				// Is it a new sensor value?
-				if (buffer[3] == 0x62) {
-					uint16_t pid = (buffer[4] << 8) + buffer[5];
-
-					uint16_t data = 0;
-					if (buffer[0] == 0x84) {
-						data = (buffer[6] << 8) + buffer[7];
-					}
-					else {
-						data = buffer[6];
-					}
-
-					// Debug logging p0
-					if (ECU_SENSORS.contains(pid)) {
-						ECU_SENSORS[pid].rawValue = data;
-
-						// ESP_LOGI(TAG, "Updated Sensor with name %s to %d", ECU_SENSORS[pid].name.c_str(), data);
-					}
-				}
-
-				// Debug logging p1
-				// if (buffer[0] == 0xA4 && buffer[3] == 0x63 && buffer[4] == 0x00 && buffer[5] == 0x06) {
-				// 	std::string id;
-				// 	for (uint8_t i = 6; i < 10; i++) {
-				// 		id += static_cast<char>(buffer[i]);
-				// 	}
-				//
-				// 	ESP_LOGI(TAG, "ECU ID: %s", id.c_str());
-				// }
-
-				// Debug logging p1
-				// std::string data;
-				// for (uint8_t i = 0; i < event.size; i++) {
-				// 	std::stringstream stream;
-				// 	stream << std::hex << static_cast<unsigned int>(buffer[i]);
-				// 	data += "0x" + std::string("00").substr(stream.str().size()) + stream.str() + ", ";
-				// }
-				// ESP_LOGI(TAG, "Received %d bytes: %s", event.size, data.c_str());
-			}
-			break;
-
-			// Buffer Overflow
-			case UART_FIFO_OVF:
-			case UART_BUFFER_FULL:
-				ESP_LOGW(TAG, "UART Buffer Overlow. Flushing");
-				uart_flush_input(UART_PORT);
-				xQueueReset(queue);
-				break;
-
-			default:
-				break;
-		}
-	}
-}
-
-/*
- *	Public Function Implementations
- */
-KLine::KLine()
-{
-	if (uart_driver_install(UART_PORT, BUFFER_SIZE_RX, BUFFER_SIZE_TX, UART_QUEUE_SIZE, &uartQueueHandle_, 0) !=
-		ESP_OK) {
-		ESP_LOGE(TAG, "Failed install UART driver");
-		return;
-	}
-
-	if (uart_param_config(UART_PORT, &UART_CONFIG)) {
-		ESP_LOGE(TAG, "Failed to parameterize UART");
-		return;
-	}
-
-	if (uart_set_pin(UART_NUM_2, GPIO_TX, GPIO_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE)) {
-		ESP_LOGE(TAG, "Failed to set the GPIOs for UART");
-		return;
-	}
-
-	if (xTaskCreate(uartRxTask, "KLineRxTask", 2048 * 2, this, 2, &rxTaskHandle_) != pdPASS) {
-		ESP_LOGE(TAG, "Failed to create RX Task");
-		return;
-	}
-
-	lastMessageMutex_ = xSemaphoreCreateMutex();
-
-	initialized_ = true;
-}
-
-KLine::~KLine()
-{
-	vTaskDelete(rxTaskHandle_);
-}
-
-void KLine::readEcuId()
-{
-	if (!initialized_) { return; }
-
-	uint8_t data[8] = {0x74, ADDR_ECU, ADDR_PCB, SID_READ_FLASH, static_cast<uint8_t>(ECU_ID_ADDR >> 16) & 0xFF,
-	                   static_cast<uint8_t>(ECU_ID_ADDR >> 8) & 0xFF, static_cast<uint8_t>(ECU_ID_ADDR) & 0xFF, 0x00};
-	send(data, 8);
-}
-
-void KLine::readPid(const uint16_t pid)
-{
-	if (!initialized_) { return; }
-
-	uint8_t data[7] = {0x64, ADDR_ECU, ADDR_PCB, SID_RDBI, static_cast<uint8_t>(pid >> 8),
-	                   static_cast<uint8_t>(pid & 0xFF), 0x00};
-	send(data, 7);
-
-	// Debug logging p1
-	std::string dataStr;
-	for (uint8_t i = 0; i < 7; i++) {
-		std::stringstream stream;
-		stream << std::hex << static_cast<unsigned int>(data[i]);
-		dataStr += "0x" + std::string("00").substr(stream.str().size()) + stream.str() + ", ";
-	}
-	// ESP_LOGI(TAG, "Send %d bytes: %s", 7, dataStr.c_str());
-}
-
-QueueHandle_t KLine::getQueue() const
-{
-	return uartQueueHandle_;
-}
-
-SemaphoreHandle_t KLine::getLastMessageMutex() const
-{
-	return lastMessageMutex_;
-}
-
-uint8_t KLine::getLastMessageLength() const
-{
-	return lastMessageLength_;
-}
-
-uint8_t* KLine::getLastMessage()
-{
-	return lastMessage_;
-}
-
-/*
- *	Private Function Implementations
-*/
-void KLine::send(uint8_t* data, const uint8_t length, const bool calcChecksum)
-{
-	if (calcChecksum) {
-		data[length - 1] = calculateChecksum(data, length);
-	}
-
-	if (xSemaphoreTake(lastMessageMutex_, portMAX_DELAY) != pdFALSE) {
-		memcpy(&lastMessage_, data, length);
-		lastMessageLength_ = length;
-
-		xSemaphoreGive(lastMessageMutex_);
-	}
-
-	uart_flush_input(UART_PORT);
-	const auto bytesWritten = uart_write_bytes(UART_PORT, data, length);
-	if (bytesWritten < length) {
-		ESP_LOGW(TAG, "Failed to send full message. Only send %d bytes", bytesWritten);
-	}
-}
-
-uint8_t KLine::calculateChecksum(const uint8_t* data, const uint8_t& length)
-{
-	if (data == nullptr) {
-		return 0;
-	}
-
-	uint32_t checksum = 0;
-	for (uint8_t i = 0; i < length - 1; i++) {
-		checksum += data[i];
-	}
-
-	return checksum % 256;
-}
+#include "Driver/KLine.hpp"// C++ includes#include <string>#include <bits/stdc++.h>// Project includes#include "Global.h"#include "Driver/EcuSensors.hpp"// espidf include#include "driver/gpio.h"#include "driver/uart.h"#include "esp_log.h"/* *	constexpr */constexpr auto TAG = "KLine";constexpr uart_port_t UART_PORT = UART_NUM_2;constexpr uint16_t BUFFER_SIZE_RX = 2048;constexpr uint16_t BUFFER_SIZE_TX = 2048;constexpr uint16_t INTERNAL_BUFFER_SIZE_RX = 64;constexpr uint8_t UART_QUEUE_SIZE = 10;constexpr uint16_t UART_BAUD_RATE = 10400;constexpr uart_config_t UART_CONFIG = {	.baud_rate = 10400,	.data_bits = UART_DATA_8_BITS,	.parity = UART_PARITY_DISABLE,	.stop_bits = UART_STOP_BITS_1,	.flow_ctrl = UART_HW_FLOWCTRL_DISABLE,	.rx_flow_ctrl_thresh = 122,};constexpr gpio_num_t GPIO_RX = GPIO_NUM_12;constexpr gpio_num_t GPIO_TX = GPIO_NUM_11;constexpr uint8_t COMMAND = 0x04;constexpr uint8_t ADDR_ECU = 0x10;constexpr uint8_t ADDR_PCB = 0xF5;constexpr uint8_t SID_RDBI = 0x22; // Read Data By Identifierconstexpr uint8_t SID_READ_FLASH = 0x23; // Unknown SID, but used for reading the ECU IDconstexpr uint8_t READ_SENSOR = 0x17;constexpr uint32_t ECU_ID_ADDR = 0x010006;/* *	Private Static Tasks */void uartRxTask(void* param){	if (param == nullptr) {		vTaskDelete(nullptr);	}	KLine* kline = static_cast<KLine*>(param);	auto queue = kline->getQueue();	uart_event_t event;	uint8_t buffer[INTERNAL_BUFFER_SIZE_RX] = {0x00};	while (true) {		if (xQueueReceive(queue, &event, portMAX_DELAY) == pdFALSE) {			continue;		}		// Act depending on the event type		switch (event.type) {			// Data received			case UART_DATA:			{				uint8_t bytesRead = uart_read_bytes(UART_PORT, buffer, event.size, portMAX_DELAY);				if (bytesRead <= 0) {					continue;				}				// Check if it's a message we send, because we can ignore them				bool ignore = false;				if (xSemaphoreTake(kline->getLastMessageMutex(), portMAX_DELAY) != pdFALSE) {					const auto& lastMessageLength = kline->getLastMessageLength();					if (lastMessageLength == bytesRead) {						const auto& lastMessage = kline->getLastMessage();						for (uint8_t i = 0; i < bytesRead; i++) {							ignore |= *(lastMessage + i) == buffer[i];						}					}					xSemaphoreGive(kline->getLastMessageMutex());				}				if (ignore) {					// ESP_LOGI(TAG, "Ignored message with %d bytes", event.size);					continue;				}				// Is it a new sensor value?				if (buffer[3] == 0x62) {					uint16_t pid = (buffer[4] << 8) + buffer[5];					uint16_t data = 0;					if (buffer[0] == 0x84) {						data = (buffer[6] << 8) + buffer[7];					}					else {						data = buffer[6];					}					// Debug logging p0					if (ECU_SENSORS.contains(pid)) {						ECU_SENSORS[pid].rawValue = data;						ESP_LOGI(TAG, "Updated Sensor with name %s to %d", ECU_SENSORS[pid].name.c_str(), data);					}				}				// Debug logging p1				// if (buffer[0] == 0xA4 && buffer[3] == 0x63 && buffer[4] == 0x00 && buffer[5] == 0x06) {				// 	std::string id;				// 	for (uint8_t i = 6; i < 10; i++) {				// 		id += static_cast<char>(buffer[i]);				// 	}				//				// 	ESP_LOGI(TAG, "ECU ID: %s", id.c_str());				// }				// Debug logging p1				// std::string data;				// for (uint8_t i = 0; i < event.size; i++) {				// 	std::stringstream stream;				// 	stream << std::hex << static_cast<unsigned int>(buffer[i]);				// 	data += "0x" + std::string("00").substr(stream.str().size()) + stream.str() + ", ";				// }				// ESP_LOGI(TAG, "Received %d bytes: %s", event.size, data.c_str());			}			break;			// Buffer Overflow			case UART_FIFO_OVF:			case UART_BUFFER_FULL:				ESP_LOGW(TAG, "UART Buffer Overlow. Flushing");				uart_flush_input(UART_PORT);				xQueueReset(queue);				break;			default:				break;		}	}}/* *	Public Function Implementations */KLine::KLine(){	if (uart_driver_install(UART_PORT, BUFFER_SIZE_RX, BUFFER_SIZE_TX, UART_QUEUE_SIZE, &uartQueueHandle_, 0) !=		ESP_OK) {		ESP_LOGE(TAG, "Failed install UART driver");		return;	}	if (uart_param_config(UART_PORT, &UART_CONFIG)) {		ESP_LOGE(TAG, "Failed to parameterize UART");		return;	}	if (uart_set_pin(UART_NUM_2, GPIO_TX, GPIO_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE)) {		ESP_LOGE(TAG, "Failed to set the GPIOs for UART");		return;	}	if (xTaskCreate(uartRxTask, "KLineRxTask", 2048 * 2, this, 2, &rxTaskHandle_) != pdPASS) {		ESP_LOGE(TAG, "Failed to create RX Task");		return;	}	lastMessageMutex_ = xSemaphoreCreateMutex();	initialized_ = true;}KLine::~KLine(){	vTaskDelete(rxTaskHandle_);}void KLine::readEcuId(){	if (!initialized_) { return; }	uint8_t data[8] = {0x74, ADDR_ECU, ADDR_PCB, SID_READ_FLASH, static_cast<uint8_t>(ECU_ID_ADDR >> 16) & 0xFF,	                   static_cast<uint8_t>(ECU_ID_ADDR >> 8) & 0xFF, static_cast<uint8_t>(ECU_ID_ADDR) & 0xFF, 0x00};	send(data, 8);}void KLine::readPid(const uint16_t pid){	if (!initialized_) { return; }	uint8_t data[7] = {0x64, ADDR_ECU, ADDR_PCB, SID_RDBI, static_cast<uint8_t>(pid >> 8),	                   static_cast<uint8_t>(pid & 0xFF), 0x00};	send(data, 7);	// Debug logging p1	std::string dataStr;	for (uint8_t i = 0; i < 7; i++) {		std::stringstream stream;		stream << std::hex << static_cast<unsigned int>(data[i]);		dataStr += "0x" + std::string("00").substr(stream.str().size()) + stream.str() + ", ";	}	// ESP_LOGI(TAG, "Send %d bytes: %s", 7, dataStr.c_str());}QueueHandle_t KLine::getQueue() const{	return uartQueueHandle_;}SemaphoreHandle_t KLine::getLastMessageMutex() const{	return lastMessageMutex_;}uint8_t KLine::getLastMessageLength() const{	return lastMessageLength_;}uint8_t* KLine::getLastMessage(){	return lastMessage_;}/* *	Private Function Implementations*/void KLine::send(uint8_t* data, const uint8_t length, const bool calcChecksum){	if (calcChecksum) {		data[length - 1] = calculateChecksum(data, length);	}	if (xSemaphoreTake(lastMessageMutex_, portMAX_DELAY) != pdFALSE) {		memcpy(&lastMessage_, data, length);		lastMessageLength_ = length;		xSemaphoreGive(lastMessageMutex_);	}	uart_flush_input(UART_PORT);	const auto bytesWritten = uart_write_bytes(UART_PORT, data, length);	if (bytesWritten < length) {		ESP_LOGW(TAG, "Failed to send full message. Only send %d bytes", bytesWritten);	}}uint8_t KLine::calculateChecksum(const uint8_t* data, const uint8_t& length){	if (data == nullptr) {		return 0;	}	uint32_t checksum = 0;	for (uint8_t i = 0; i < length - 1; i++) {		checksum += data[i];	}	return checksum % 256;}
