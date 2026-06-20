@@ -38,10 +38,23 @@ Rpm::Rpm() : ActiveSensor(GPIO_NUM_9, GPIO_INTR_NEGEDGE) {}
 
 int Rpm::get()
 {
+	// Detect engine shutoff
+	if (esp_timer_get_time() - fallingEdgeTime_ >= 300000) { // 300ms
+		rpm_ = 0;
+		hz_ = 0;
+		return rpm_;
+	}
+
 	portENTER_CRITICAL_ISR(&mux_);
 	const int64_t time = fallingEdgeTime_ - lastFallingEdgeTime_;
 	portEXIT_CRITICAL_ISR(&mux_);
 
+	// Prevent division by 0
+	if (time == 0) {
+		return 0;
+	}
+
+	// Calculate RPM
 	const float seconds = static_cast<float>(time) / 1000000.0f;
 	hz_ = round(1.0 / seconds);
 	calculateRpm();
