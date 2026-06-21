@@ -2,11 +2,14 @@
 
 // espidf includes
 #include "esp_log.h"
+#include "esp_timer.h"
 
 /*
  *	constexpr
  */
 constexpr auto TAG = "LeftIndicator";
+
+constexpr unsigned int ALLOW_CHANGE_AFTER_US = 50000;
 
 /*
  *	Public Function Implementations
@@ -18,14 +21,4 @@ LeftIndicator::LeftIndicator() : ActiveSensor(GPIO_NUM_15, GPIO_INTR_ANYEDGE)
 
 int LeftIndicator::get() { return active_; }
 
-#include "esp_timer.h"
-void LeftIndicator::cb()
-{
-	uint64_t current_time = esp_timer_get_time();
-
-	// Zustand nur aktualisieren, wenn die Sperrzeit abgelaufen ist
-	if ((current_time - lastIsrTime_) > 10000) {
-		active_ = !static_cast<bool>(gpio_get_level(gpio_));
-		lastIsrTime_ = current_time;
-	}
-}
+void LeftIndicator::cb() { active_ = gpio_get_level(gpio_) == 0; }

@@ -20,6 +20,4 @@ private:
 	 *	Private Variables
 	 */
 	bool active_ = false;
-
-	uint64_t lastIsrTime_ = 0;
 };
