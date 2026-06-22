@@ -1,7 +1,11 @@
 #include "Sensor/FuelLevel.hpp"
 
 // C++ includes
+#include <algorithm>
 #include <cmath>
+
+// espidf includes
+#include <esp_log.h>
 
 /*
  *	Private typedefs
@@ -40,7 +44,7 @@ int FuelLevel::get()
 	 *	Median Filter
 	 */
 	auto sortedLevels = lastLevels_;
-	sortedLevels.sort();
+	std::ranges::sort(sortedLevels.begin(), sortedLevels.end());
 
 	// Get the element in the middle
 	auto it = sortedLevels.begin();
@@ -57,8 +61,12 @@ int FuelLevel::get()
 
 	// Calculate the dampened value
 	smoothedValue_ = (NEW_VALUES_DAMPENER * median) + ((1.0f - NEW_VALUES_DAMPENER) * smoothedValue_);
+	if (smoothedValue_> 100.0f)
+	{
+		smoothedValue_ = 100.0f;
+	}
 
-	return std::round(static_cast<int>(smoothedValue_));
+	return static_cast<int>(smoothedValue_);
 }
 
 /*
@@ -101,7 +109,10 @@ void FuelLevel::calcLevel()
 		}
 	}
 
-	// Track the value
-	lastLevels_.pop_front();
+	// Track the
+	if (lastLevels_.size() >= 21)
+	{
+		lastLevels_.erase(lastLevels_.begin());
+	}
 	lastLevels_.push_back(levelInPercent);
 }

@@ -1,9 +1,6 @@
 #include "State/Operation.hpp"
 
 // Project includes
-#include "Wifi.hpp"
-#include "WifiHost.hpp"
-#include "WifiJoin.hpp"
 #include "Sensor/FuelLevel.hpp"
 #include "Sensor/LeftIndicator.hpp"
 #include "Sensor/OilPressure.hpp"
@@ -11,6 +8,9 @@
 #include "Sensor/Rpm.hpp"
 #include "Sensor/Speed.hpp"
 #include "Sensor/WaterTemperature.hpp"
+#include "Wifi.hpp"
+#include "WifiHost.hpp"
+#include "WifiJoin.hpp"
 
 // espidf includes
 #include "esp_log.h"
@@ -20,7 +20,7 @@
  */
 constexpr auto TAG = "Operation";
 
-constexpr auto PASSIVE_SENSOR_POLL_HZ = 1;
+constexpr auto PASSIVE_SENSOR_POLL_HZ = 0.1;
 constexpr auto BROADCAST_SENSOR_DATA_HZ = 100;
 
 /*
@@ -109,7 +109,7 @@ void Operation::enter()
 		ESP_LOGE(TAG, "Failed to create task for reading all passive HW sensors");
 	}
 
-	if (xTaskCreate(staticBroadcastSensorDataTask, "OperationBroadcastSensorDataTask", 2048, this, 2,
+	if (xTaskCreate(staticBroadcastSensorDataTask, "OperationBroadcastSensorDataTask", 2048 * 2, this, 2,
 	                &broadCastSensorDataTaskHandle_) != pdPASS) {
 		ESP_LOGE(TAG, "Failed to create task for broadcasting sensor data");
 	}
@@ -236,7 +236,7 @@ void Operation::readPassiveSensorsTask() const
 			sensor->read();
 		}
 
-		vTaskDelay(pdMS_TO_TICKS(1000 / PASSIVE_SENSOR_POLL_HZ));
+		vTaskDelay(pdMS_TO_TICKS(1000.0 / PASSIVE_SENSOR_POLL_HZ));
 	}
 }
 

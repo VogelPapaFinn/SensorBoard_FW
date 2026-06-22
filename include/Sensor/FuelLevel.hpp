@@ -4,7 +4,7 @@
 #include "PassiveSensor.hpp"
 
 // C++ includes
-#include <list>
+#include <vector>
 
 class FuelLevel : public PassiveSensor
 {
@@ -24,7 +24,7 @@ protected:
 	/*
 	 *	Private Variables
 	 */
-	std::list<uint8_t> lastLevels_ = std::list<uint8_t>(21, 0);
+	std::vector<uint8_t> lastLevels_;
 
 	double resistance_ = 0.0;
 

@@ -3,6 +3,9 @@
 // C++ includes
 #include <iterator>
 
+// espidf includes
+#include "esp_log.h"
+
 /*
  *	Private typedefs
  */
@@ -35,7 +38,7 @@ WaterTemperature::WaterTemperature(adc_oneshot_unit_handle_t* adc) : PassiveSens
 
 int WaterTemperature::get()
 {
-	return temperature_;
+	return temperature_ < 90 ? temperature_ : 90;
 }
 
 /*
