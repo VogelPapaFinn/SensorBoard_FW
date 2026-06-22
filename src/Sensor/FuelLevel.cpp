@@ -47,9 +47,7 @@ int FuelLevel::get()
 	std::ranges::sort(sortedLevels.begin(), sortedLevels.end());
 
 	// Get the element in the middle
-	auto it = sortedLevels.begin();
-	std::advance(it, 10);
-	const float median = *it;
+	const float median = sortedLevels.at(static_cast<int>(sortedLevels.size() / 2));
 
 	/*
 	 *	Dampening new values
