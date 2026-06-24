@@ -35,6 +35,9 @@ private:
 	/*
 	 *	Private Variables
 	 */
+	bool simulation_ = false;
+	std::vector<std::array<uint8_t, 8>> simulationData_;
+
 	TaskHandle_t readPassiveSensorsTaskHandle_;
 
 	TaskHandle_t broadCastSensorDataTaskHandle_;
