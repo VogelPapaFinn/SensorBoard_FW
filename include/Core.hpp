@@ -5,6 +5,7 @@
 #include "Config.hpp"
 #include "Driver/Display.hpp"
 #include "Wifi.hpp"
+#include "Driver/KLine.hpp"
 
 // espidf includes
 #include "esp_adc/adc_oneshot.h"
@@ -47,6 +48,8 @@ public:
 
 	WebInterface* getWebinterface() const;
 
+	KLine* getKLine();
+
 	/*
 	 *	CAN related functions
 	 */
@@ -88,4 +91,6 @@ private:
 	Config* config_ = nullptr;
 
 	ArduinoJson::JsonDocument* jsonConfig_ = nullptr;
+
+	KLine kline_;
 };

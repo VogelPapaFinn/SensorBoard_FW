@@ -1,9 +1,13 @@
 #pragma once
 
+// C++ includes
+#include "fstream"
+
 // Project includes
-#include "State/State.hpp"
+#include "Driver/KLine.hpp"
 #include "Sensor/ActiveSensor.hpp"
 #include "Sensor/PassiveSensor.hpp"
+#include "State/State.hpp"
 #include "WebInterface/WebInterface.hpp"
 
 class Operation : public State
@@ -26,11 +30,18 @@ public:
 
 	void broadcastSensorsTask() const;
 
+	void logSensorsTask() const;
+
 private:
 	/*
 	 *	Private Functions
 	 */
 	void setupDisplayWifi() const;
+
+	/*
+	 *	Instances
+	 */
+	Filesystem* filesystem_;
 
 	/*
 	 *	Private Variables
@@ -42,9 +53,17 @@ private:
 
 	TaskHandle_t broadCastSensorDataTaskHandle_;
 
-	std::vector<PassiveSensor*> passiveSensor_;
+	std::vector<PassiveSensor*> passiveSensors_;
 
-	std::vector<ActiveSensor*> activeSensor_;
+	std::vector<ActiveSensor*> activeSensors_;
+
+	std::vector<EcuSensor*> ecuSensors_;
 
 	ArduinoJson::JsonDocument* config_ = nullptr;
+
+	TaskHandle_t logSensorDataTaskHandle_;
+
+	FILE* sensorDataCsv_ = nullptr;
+
+	KLine* kline_ = nullptr;
 };

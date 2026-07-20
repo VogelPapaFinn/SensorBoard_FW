@@ -5,9 +5,9 @@
 
 // C++ includes
 #include <functional>
+#include <sstream>
 #include <string>
 #include <unordered_map>
-#include <sstream>
 
 /*
  *	constexpr

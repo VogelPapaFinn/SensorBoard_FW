@@ -51,5 +51,5 @@ private:
 
 	FILE* displayUpdateFile_ = nullptr;
 
-	KLine kline_;
+	KLine* kline_ = nullptr;
 };

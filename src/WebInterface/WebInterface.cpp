@@ -294,7 +294,8 @@ WebInterface::WebInterface()
 	/*
 	 *	Read ECU ID
 	 */
-	kline_.readEcuId();
+	kline_ = Core::get()->getKLine();
+	kline_->readEcuId();
 
 	ESP_LOGI(TAG, "Initialized");
 	initialized_ = true;
@@ -330,7 +331,7 @@ SemaphoreHandle_t& WebInterface::getSensorsMutex()
 
 KLine* WebInterface::getKLine()
 {
-	return &kline_;
+	return kline_;
 }
 
 /*

@@ -84,6 +84,11 @@ WebInterface* Core::getWebinterface() const
 	return webInterface_;
 }
 
+KLine* Core::getKLine()
+{
+	return &kline_;
+}
+
 Can* Core::getCan() const
 {
 	return can_;
