@@ -38,7 +38,7 @@ WaterTemperature::WaterTemperature(adc_oneshot_unit_handle_t* adc) : PassiveSens
 
 int WaterTemperature::get()
 {
-	return temperature_ < 90 ? temperature_ : 90;
+	return temperature_;
 }
 
 /*

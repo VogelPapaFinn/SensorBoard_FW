@@ -61,6 +61,9 @@ static std::string getMimeType(const std::string& filepath)
 	if (lastDot == "ico") {
 		return "image/x-icon";
 	}
+	if (lastDot == "csv") {
+		return "text/csv";
+	}
 
 	return "text/plain";
 }
@@ -68,25 +71,40 @@ static std::string getMimeType(const std::string& filepath)
 static esp_err_t fileHandler(httpd_req_t* p_reqst)
 {
 	std::string filepath;
+	Filesystem::Location location = Filesystem::DATA_PARTITION;
 
 	if (strcmp(p_reqst->uri, "") == 0) {
 		return ESP_ERR_INVALID_ARG;
 	}
 
-	// Return the specified file
-	if (strcmp(p_reqst->uri, "/") == 0) {
-		filepath = "webinterface/index.html";
+	std::string uri = p_reqst->uri;
+
+	// Prüfen, ob die URL mit "/sd/" beginnt (SD-Karten Zugriff)
+	if (uri.find("/sd/") == 0) {
+		// Schneide "/sd/" ab, um den relativen Pfad für die SD-Karte zu erhalten
+		filepath = uri.substr(4);
+		location = Filesystem::SD_CARD;
 	}
+	// Andernfalls normales Webinterface von der Daten-Partition laden
 	else {
-		filepath = "webinterface";
-		filepath += p_reqst->uri;
+		if (uri == "/") {
+			filepath = "webinterface/index.html";
+		}
+		else {
+			filepath = "webinterface" + uri;
+		}
 	}
 
-	// Then open the file as read only
-	FILE* reqFile = Filesystem::get()->openFile(filepath, "r", Filesystem::DATA_PARTITION);
+	// Datei mit der dynamisch ermittelten Location öffnen
+	FILE* reqFile = Filesystem::get()->openFile(filepath, "rb", location);
 	if (reqFile == nullptr) {
-		esp_rom_printf("[%s] Couldn't open file: %s\n", TAG, filepath.c_str());
+		esp_rom_printf("[%s] Couldn't open file: %s on location: %d\n", TAG, filepath.c_str(), location);
+		httpd_resp_send_404(p_reqst);
 		return ESP_FAIL;
+	}
+
+	if (filepath.find(".csv") != std::string::npos) {
+		httpd_resp_set_hdr(p_reqst, "Content-Disposition", "attachment");
 	}
 
 	httpd_resp_set_type(p_reqst, getMimeType(filepath).c_str());
