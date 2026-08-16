@@ -1,6 +1,6 @@
 #pragma once
 
-enum PID // Lower PID Byte
+enum PID
 {
 	ALTERNATOR_LOAD_P = 0x17A5,
 	ALTERNATOR_DESIRED_VOLTAGE = 0x17A4,

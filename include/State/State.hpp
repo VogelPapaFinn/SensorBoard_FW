@@ -2,7 +2,10 @@
 
 // Project includes
 #include "Can.hpp"
-#include "Core.hpp"
+#include "Events.hpp"
+
+// espidf includes
+#include "esp_event_base.h"
 
 class State
 {
@@ -27,18 +30,11 @@ public:
 
 	TYPE getType() const;
 
-	virtual void handleCanFrame(const Can::Frame& frame) = 0;
-
 protected:
-	/*
-	 *	Instances
-	 */
-	Core* core_ = nullptr;
-
 	/*
 	 *	Private Variables
 	 */
 	TYPE type_ = UNKNOWN;
 
-	bool blocked = false;
+	std::vector<std::tuple<esp_event_base_t, SYSTEM_EVENT_ID, esp_event_handler_instance_t>> eventHandlers_;
 };

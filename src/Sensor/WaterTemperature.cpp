@@ -1,9 +1,13 @@
 #include "Sensor/WaterTemperature.hpp"
 
+// Project includes
+#include "Events.hpp"
+
 // C++ includes
 #include <iterator>
 
 // espidf includes
+#include "esp_event.h"
 #include "esp_log.h"
 
 /*
@@ -79,4 +83,11 @@ void WaterTemperature::calcTemperature(const uint16_t r)
 			return;
 		}
 	}
+}
+
+void WaterTemperature::notifyAboutNewValue()
+{
+	const auto& value = get();
+
+	esp_event_post(SYSTEM_EVENT_BASE, WATER_TEMP_CHANGED, &value, sizeof(value), portMAX_DELAY);
 }

@@ -1,72 +1,105 @@
 // Project includes
 #include "Can.hpp"
 #include "Driver/Display.hpp"
+#include "Events.hpp"
 #include "Filesystem.hpp"
-#include "Core.hpp"
-#include "State/Registration.hpp"
-#include "Event.hpp"
+#include "Handler/RegistrationHandler.hpp"
 #include "State/Operation.hpp"
+#include "State/Registration.hpp"
+#include "SystemContext.hpp"
 
 // espidf includes
 #include <freertos/FreeRTOS.h>
 
-/*
- *	constexpr
- */
+//! \brief Main application tag.
 constexpr auto TAG = "main";
+
+//! \brief GPIO pin number for CAN receiver.
+constexpr gpio_num_t GPIO_CAN_RX = GPIO_NUM_41;
+
+//! \brief GPIO pin number for CAN transmitter.
+constexpr gpio_num_t GPIO_CAN_TX = GPIO_NUM_40;
+
+//! \brief Default configuration file name.
+constexpr auto DEFAULT_CONFIG_NAME = "default/config.json";
+
+//! \brief Configuration file name.
+constexpr auto CONFIG_NAME = "config.json";
+
+constexpr adc_oneshot_unit_init_cfg_t ADC1_UNIT_CONFIG = {.unit_id = ADC_UNIT_1, .ulp_mode = ADC_ULP_MODE_DISABLE};
+
+constexpr gpio_num_t GPIO_DISPLAY1 = GPIO_NUM_13;
+constexpr gpio_num_t GPIO_DISPLAY2 = GPIO_NUM_14;
+constexpr gpio_num_t GPIO_DISPLAY3 = GPIO_NUM_21;
 
 /*
  *	Private Static Variables
  */
-static Core* core = nullptr;
-
-static QueueHandle_t canQueueHandle = xQueueCreate(10, sizeof(Can::Frame));
-
-static QueueHandle_t mainEventQueueHandle = xQueueCreate(20, sizeof(Event));
-
-static std::shared_ptr<State> currentState;
+//! \brief Current application state.
+static std::shared_ptr<State> g_currentState;
 
 /*
- *	Can rx callback function
+ *	Helper functions
  */
-static void canRxTask(void* param)
+//! \brief Registers necessary events for system initialization.
+static void registerToEvents(SystemContext* p_sysCon)
 {
-	Can::Frame rxFrame;
-	while (true) {
-		if (xQueueReceive(canQueueHandle, &rxFrame, portMAX_DELAY) != pdPASS) {
-			continue;
-		}
+	/*
+	 *	Registration Completed
+	 */
+	esp_event_handler_instance_register(
+		SYSTEM_EVENT_BASE, REGISTRATION_COMPLETED,
+		[](void* p_systemContext, esp_event_base_t, int32_t, void*)
+		{
+			/*
+			 *	Get the system context
+			 */
+			if (p_systemContext == nullptr) {
+				return;
+			}
 
-		currentState->handleCanFrame(rxFrame);
-	}
+			auto sysCon = static_cast<SystemContext*>(p_systemContext);
+
+			/*
+			 *	Enter the operation state
+			 */
+			g_currentState = std::make_shared<Operation>(sysCon);
+			g_currentState->enter();
+		},
+		p_sysCon, nullptr);
 }
 
-static void mainEventTask(void* param)
+//! \brief Creates and opens the configuration file.
+//! \param sysCon The system context used for configuration.
+static void createAndOpenConfigFile(SystemContext& sysCon)
 {
-	Event event;
-	while (true) {
-		if (xQueueReceive(mainEventQueueHandle, &event, portMAX_DELAY) != pdPASS) {
-			continue;
-		}
+	/*
+	 *	Create default config, if config doesnt exist
+	 */
+	if (!sysCon.filesystem->doesFileExist(CONFIG_NAME, Filesystem::CONFIG_PARTITION)) {
+		sysCon.filesystem->createFile(CONFIG_NAME, Filesystem::CONFIG_PARTITION);
 
-		// Act depending on the event
-		switch (event.type) {
-			case Event::REGISTRATION_FINISHED:
-			{
-				currentState = std::make_shared<Operation>();
-				currentState->enter();
-			}
-			break;
+		if (!sysCon.filesystem->doesFileExist(DEFAULT_CONFIG_NAME, Filesystem::CONFIG_PARTITION)) {
+			Config defaultConfig(&sysCon);
+			defaultConfig.open(DEFAULT_CONFIG_NAME);
 
-			case Event::DISPLAY_UPDATE_DOWNLOADED:
-			{
-				if (currentState.get()->getType() == State::OPERATION) {
-					const auto operation = static_cast<Operation*>(currentState.get());
-					operation->executeDisplayUpdate(core->getDisplays()->at(0).getCanId());
-				}
-			} break;
-			default: ;
+			Config newConfig(&sysCon);
+			newConfig.open(CONFIG_NAME);
+			*newConfig.getJson() = *defaultConfig.getJson();
+
+			newConfig.save();
 		}
+	}
+
+	/*
+	 *	Load the config file
+	 */
+	sysCon.config->open(CONFIG_NAME);
+	const auto& jsonConfig = sysCon.config->getJson();
+	if (jsonConfig != nullptr) {
+		std::string str;
+		serializeJsonPretty(*jsonConfig, str);
+		ESP_LOGI(TAG, "%s", str.c_str());
 	}
 }
 
@@ -75,30 +108,83 @@ static void mainEventTask(void* param)
  */
 extern "C" void app_main(void)
 {
-	// MUSS STEHEN BLEIBEN FUERS DEBUGGING
+	// NEEDED FOR DEBUGGING
 	vTaskDelay(pdMS_TO_TICKS(100));
 
+	/*
+	 *	Print startup logging header
+	 */
 	ESP_LOGI(TAG, "--- --- --- --- --- --- ---");
 	ESP_LOGI(TAG, "Startup");
 
-	core = Core::get();
-	core->setMainEventQueue(mainEventQueueHandle);
-	core->getCan()->registerRxCbQueue(&canQueueHandle);
-
-	if (xTaskCreate(canRxTask, "MainCanRxTask", 4096, NULL, 2, NULL) != pdPASS) {
-		ESP_LOGE(TAG, "Failed to create CAN RX Task. Restarting...");
+	/*
+	 *	Start the event loop
+	 */
+	if (esp_event_loop_create_default() != ESP_OK) {
+		ESP_LOGE(TAG, "Error creating default event loop. Rebooting...");
 		esp_restart();
-		vTaskDelay(pdMS_TO_TICKS(100000)); // Fallback
 	}
 
-	if (xTaskCreate(mainEventTask, "MainEventTask", 4096, NULL, 2, NULL) != pdPASS) {
-		ESP_LOGE(TAG, "Failed to create main event task");
-		esp_restart();
-		vTaskDelay(pdMS_TO_TICKS(100000)); // Fallback
+	/*
+	 *	Create all necessary instances
+	 */
+	// System Context
+	SystemContext sysCon;
+
+	// Can
+	Can can(GPIO_CAN_RX, GPIO_CAN_TX);
+	can.initialize();
+	can.enable();
+
+	// Filesystem
+	Filesystem fs;
+
+	// Config
+	Config config(&sysCon);
+
+	// KLine
+	KLine kline;
+
+	// Displays
+	Display display1(&sysCon, GPIO_DISPLAY2, CAN_MASTER_ID + 1, 0, true);
+	Display display2(&sysCon, GPIO_DISPLAY1, CAN_MASTER_ID + 2, 1, false);
+	Display display3(&sysCon, GPIO_DISPLAY3, CAN_MASTER_ID + 3, 2, false);
+
+	// Registration Handler
+	RegistrationHandler regHandler(&sysCon);
+
+	/*
+	 *	Setup the ADC1
+	 */
+	if (adc_oneshot_new_unit(&ADC1_UNIT_CONFIG, &sysCon.adc1) != ESP_OK) {
+		ESP_LOGE(TAG, "Failed to initialize ADC1");
 	}
 
-	currentState = std::make_shared<Registration>();
-	currentState->enter();
+	/*
+	 *	Register the necessary events
+	 */
+	registerToEvents(&sysCon);
+
+	/*
+	 *	Build the SystemContext
+	 */
+	sysCon.can = &can;
+	sysCon.filesystem = &fs;
+	sysCon.config = &config;
+	sysCon.displays = {&display1, &display2, &display3};
+	sysCon.wifi = nullptr;
+	sysCon.kline = &kline;
+
+	/*
+	 *	Ensure the config file exists and is loaded
+	 */
+	createAndOpenConfigFile(sysCon);
+
+	/*
+	 *	Create and enter the registration state
+	 */
+	g_currentState = std::make_shared<Registration>(&sysCon);
+	g_currentState->enter();
 
 	while (true) {
 		vTaskDelay(pdMS_TO_TICKS(1000));

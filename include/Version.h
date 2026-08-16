@@ -7,7 +7,7 @@
 //! \brief The minor version of the firmware
 #define VERSION_MINOR "0"
 //! \brief The patch version of the firmware
-#define VERSION_PATCH "0"
+#define VERSION_PATCH "1"
 //! \brief All versions as one string with the git commit hash at the end
 #define VERSION_STRING VERSION_MAJOR "." VERSION_MINOR "." VERSION_PATCH "_" GIT_HASH
 //! \brief Is it a beta version?

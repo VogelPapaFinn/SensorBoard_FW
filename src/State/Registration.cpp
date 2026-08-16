@@ -1,7 +1,12 @@
 #include "State/Registration.hpp"
 
 // Project includes
-#include "Event.hpp"
+#include "CanGroupsAndFunctions.hpp"
+#include "Driver/Display.hpp"
+#include "Events.hpp"
+
+// espidf includes
+#include "esp_log.h"
 
 /*
  *	constexpr
@@ -11,154 +16,93 @@ const auto TAG = "Registration";
 /*
  *	Public Function Implementations
  */
-Registration::Registration() :
-	State(State::REGISTRATION)
+Registration::Registration(SystemContext* p_sysCon) : State(State::REGISTRATION) { sysCon_ = p_sysCon; }
+
+Registration::~Registration()
 {
+	/*
+	 *	Unregister from all events
+	 */
+	for (const auto& event : eventHandlers_) {
+		const auto& base = std::get<0>(event);
+		const auto& id = std::get<1>(event);
+		const auto& handler = std::get<2>(event);
+
+		esp_event_handler_instance_unregister(base, id, handler);
+	}
+	eventHandlers_.clear();
 }
 
 void Registration::enter()
 {
-	core_->getDisplays()->at(0).turnOn();
-}
+	// Register necessary events on the event loop
+	registerToEvents();
 
-void Registration::handleCanFrame(const Can::Frame& frame)
-{
-	if (blocked) {
-		return;
-	}
-
-	if (frame.group != CanFrame::GROUP::CONFIGURATION) {
-		return;
-	}
-
-	if (frame.target != CAN_MASTER_ID) {
-		return;
-	}
-
-	const uint8_t& expectedCanId = core_->getDisplays()->at(currDisplay).getCanId();
-
-	// Act depending on the function type
-	switch (frame.function) {
-		case CanFrame::REGISTER_AT_MASTER:
-		{
-			const bool correctCanId = frame.sender == expectedCanId;
-			const bool correctScreen = frame.data[0] == core_->getDisplays()->at(currDisplay).getScreen();
-			const bool correctRotation = static_cast<bool>(frame.data[1]) == core_->getDisplays()->at(currDisplay).isRotated();
-
-			if (!correctCanId || !correctScreen || !correctRotation) {
-				setId(frame.sender, expectedCanId);
-				setScreen();
-				setRotation();
-			}
-
-			confirmConfiguration();
-			nextDisplay();
-		}
-		break;
-
-		default:
-		{
-			esp_rom_printf("Received unknown CAN message type!\n");
-		}
-		break;
-	}
+	// Start the first display
+	sysCon_->displays.at(0)->turnOn();
 }
 
 /*
  *	Private Function Implementations
  */
-void Registration::confirmId(const uint8_t& id)
+void Registration::registerToEvents()
 {
-	Can::Frame txFrame;
-	txFrame.sender = CAN_MASTER_ID;
-	txFrame.target = id;
-	txFrame.group = CanFrame::GROUP::CONFIGURATION;
-	txFrame.function = CanFrame::CONFIGURATION::CONFIRM_ID;
-	txFrame.answer = true;
+	/*
+	 *	Display registered
+	 */
+	eventHandlers_.push_back(std::make_tuple(SYSTEM_EVENT_BASE, DISPLAY_REGISTERED, esp_event_handler_instance_t()));
+	esp_event_handler_instance_register(
+		SYSTEM_EVENT_BASE, DISPLAY_REGISTERED,
+		[](void* p_state, esp_event_base_t, int32_t, void*)
+		{
+			/*
+			 *	Get the state ptr
+			 */
+			if (p_state == nullptr) {
+				return;
+			}
 
-	Core::get()->getCan()->queueFrame(txFrame);
-}
+			// Convert it
+			Registration* state = static_cast<Registration*>(p_state);
 
-void Registration::setId(const uint8_t& oldId, const uint8_t& newId)
-{
-	Can::Frame txFrame;
-	txFrame.sender = CAN_MASTER_ID;
-	txFrame.target = oldId;
-	txFrame.group = CanFrame::GROUP::CONFIGURATION;
-	txFrame.function = CanFrame::CONFIGURATION::SET_ID;
-	txFrame.dataLengthCode = 1;
-	txFrame.data[0] = newId;
-	txFrame.answer = false;
-
-	Core::get()->getCan()->queueFrame(txFrame);
+			/*
+			 *	Pass the register call
+			 */
+			state->nextDisplay();
+		},
+		this, &get<2>(eventHandlers_.back()));
 }
 
 void Registration::nextDisplay()
 {
 	ESP_LOGI(TAG, "Next Display");
 
+	/*
+	 *	Complete registration if possible
+	 */
 	if (++currDisplay >= 3) {
 		wakeUpAllDisplays();
 
-		Event event(Event::REGISTRATION_FINISHED);
-		xQueueSend(core_->getMainEventQueue(), &event, portMAX_DELAY);
-		blocked = true;
+		esp_event_post(SYSTEM_EVENT_BASE, REGISTRATION_COMPLETED, nullptr, 0, portMAX_DELAY);
 
 		return;
 	}
 
-	core_->getDisplays()->at(currDisplay).turnOn();
+	/*
+	 *	Turn on the next display
+	 */
+	sysCon_->displays.at(currDisplay)->turnOn();
 }
 
-void Registration::setScreen() const
-{
-	Can::Frame txFrame;
-	txFrame.sender = CAN_MASTER_ID;
-	txFrame.target = core_->getDisplays()->at(currDisplay).getCanId();
-	txFrame.group = CanFrame::GROUP::CONFIGURATION;
-	txFrame.function = CanFrame::CONFIGURATION::SET_SCREEN;
-	txFrame.dataLengthCode = 1;
-	txFrame.data[0] = core_->getDisplays()->at(currDisplay).getScreen();
-	txFrame.answer = false;
-
-	Core::get()->getCan()->queueFrame(txFrame);
-}
-
-void Registration::setRotation() const
-{
-	Can::Frame txFrame;
-	txFrame.sender = CAN_MASTER_ID;
-	txFrame.target = core_->getDisplays()->at(currDisplay).getCanId();
-	txFrame.group = CanFrame::GROUP::CONFIGURATION;
-	txFrame.function = CanFrame::CONFIGURATION::SET_ROTATION;
-	txFrame.dataLengthCode = 1;
-	txFrame.data[0] = core_->getDisplays()->at(currDisplay).isRotated();
-	txFrame.answer = false;
-
-	Core::get()->getCan()->queueFrame(txFrame);
-}
-
-void Registration::confirmConfiguration() const
-{
-	Can::Frame txFrame;
-	txFrame.sender = CAN_MASTER_ID;
-	txFrame.target = core_->getDisplays()->at(currDisplay).getCanId();
-	txFrame.group = CanFrame::GROUP::CONFIGURATION;
-	txFrame.function = CanFrame::CONFIGURATION::CONFIRM_CONFIGURATION;
-	txFrame.answer = false;
-
-	Core::get()->getCan()->queueFrame(txFrame);
-}
-
-void Registration::wakeUpAllDisplays()
+void Registration::wakeUpAllDisplays() const
 {
 	Can::Frame txFrame;
 	txFrame.sender = CAN_MASTER_ID;
 	txFrame.target = CAN_BROADCAST_ID;
-	txFrame.group = CanFrame::GROUP::CONFIGURATION;
-	txFrame.function = CanFrame::CONFIGURATION::WAKE_UP;
+	txFrame.group = CanFrameGroups::GROUP::CONFIGURATION;
+	txFrame.function = CanFrameGroups::CONFIGURATION::WAKE_UP;
 	txFrame.dataLengthCode = 0;
 	txFrame.answer = false;
 
-	Core::get()->getCan()->queueFrame(txFrame);
+	sysCon_->can->queueFrame(txFrame);
 }

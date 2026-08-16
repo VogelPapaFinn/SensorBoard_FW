@@ -1,8 +1,11 @@
 #include "Sensor/LeftIndicator.hpp"
 
+// Project includes
+#include "Events.hpp"
+
 // espidf includes
+#include "esp_event.h"
 #include "esp_log.h"
-#include "esp_timer.h"
 
 /*
  *	constexpr
@@ -22,3 +25,8 @@ LeftIndicator::LeftIndicator() : ActiveSensor(GPIO_NUM_15, GPIO_INTR_ANYEDGE)
 int LeftIndicator::get() { return active_; }
 
 void LeftIndicator::cb() { active_ = gpio_get_level(gpio_) == 0; }
+
+void LeftIndicator::notifyAboutNewValue()
+{
+	esp_event_post(SYSTEM_EVENT_BASE, LEFT_INDICATOR_ACTIVE_CHANGED, &active_, sizeof(active_), portMAX_DELAY);
+}

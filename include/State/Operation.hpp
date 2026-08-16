@@ -13,57 +13,45 @@
 class Operation : public State
 {
 public:
-	Operation();
+	Operation(SystemContext* p_sysCon);
 
 	~Operation();
 
 	void enter() override;
 
-	void handleCanFrame(const Can::Frame& frame) override;
-
 	void executeDisplayUpdate(const uint8_t displayId) const;
-
-	/*
-	 *	Private Tasks
-	 */
-	void readPassiveSensorsTask() const;
-
-	void broadcastSensorsTask() const;
-
-	void logSensorsTask() const;
 
 private:
 	/*
 	 *	Private Functions
 	 */
-	void setupDisplayWifi() const;
+	void registerToEvents();
 
-	/*
-	 *	Instances
-	 */
-	Filesystem* filesystem_;
+	void handleCanFrame(const Can::Frame* frame) const;
+
+	void setupPassiveSensorReadings();
+
+	void setupSensorBroadcasting();
+
+	void setupSensorDataLogging();
+
+	void setupWifi() const;
+
+	void logSensorData() const;
+
+	void connectDisplaysToWifi() const;
 
 	/*
 	 *	Private Variables
 	 */
-	bool simulation_ = false;
-	std::vector<std::array<uint8_t, 8>> simulationData_;
+	SystemContext* sysCon_ = nullptr;
 
-	TaskHandle_t readPassiveSensorsTaskHandle_;
+	std::vector<Sensor*> sensors_;
+	std::unordered_map<PassiveSensor*, TimerHandle_t> passiveSensorTimers_;
 
-	TaskHandle_t broadCastSensorDataTaskHandle_;
-
-	std::vector<PassiveSensor*> passiveSensors_;
-
-	std::vector<ActiveSensor*> activeSensors_;
+	TimerHandle_t sensorDataLoggingTimer_ = nullptr;
 
 	std::vector<EcuSensor*> ecuSensors_;
 
-	ArduinoJson::JsonDocument* config_ = nullptr;
-
-	TaskHandle_t logSensorDataTaskHandle_;
-
 	FILE* sensorDataCsv_ = nullptr;
-
-	KLine* kline_ = nullptr;
 };

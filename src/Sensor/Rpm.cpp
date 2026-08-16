@@ -1,9 +1,13 @@
 #include "Sensor/Rpm.hpp"
 
+// Project includes
+#include "Events.hpp"
+
 // C++ includes
 #include <math.h>
 
 // espidf includes
+#include "esp_event.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 
@@ -65,9 +69,9 @@ int Rpm::get()
 
 void Rpm::cb()
 {
-    /*
-     *	Debouncing
-     */
+	/*
+	 *	Debouncing
+	 */
 	const auto now = esp_timer_get_time();
 	if ((now - fallingEdgeTime_) > 2000) { // With a max of 8000rpm the min time between each trigger is above 2000us
 		portENTER_CRITICAL_ISR(&mux_);
@@ -75,4 +79,11 @@ void Rpm::cb()
 		fallingEdgeTime_ = now;
 		portEXIT_CRITICAL_ISR(&mux_);
 	}
+}
+
+void Rpm::notifyAboutNewValue()
+{
+	const auto& value = get();
+
+	esp_event_post(SYSTEM_EVENT_BASE, RPM_CHANGED, &value, sizeof(value), portMAX_DELAY);
 }

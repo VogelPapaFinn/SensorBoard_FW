@@ -2,6 +2,8 @@
 
 // Project includes
 #include "DevelopmentStuff/DataSimulation.h"
+#include "Driver/Display.hpp"
+#include "Events.hpp"
 #include "Sensor/FuelLevel.hpp"
 #include "Sensor/LeftIndicator.hpp"
 #include "Sensor/OilPressure.hpp"
@@ -14,6 +16,8 @@
 #include "WifiJoin.hpp"
 
 // espidf includes
+#include "CanGroupsAndFunctions.hpp"
+#include "esp_event.h"
 #include "esp_log.h"
 
 /*
@@ -21,601 +25,763 @@
  */
 constexpr auto TAG = "Operation";
 
-constexpr auto PASSIVE_SENSOR_POLL_HZ = 0.1;
+constexpr auto FUEL_LEVEL_READ_INTERVAL_MS = 60000;
+constexpr auto OIL_PRESSURE_READ_INTERVAL_MS = 10000;
+constexpr auto WATER_TEMP_READ_INTERVAL_MS = 5000;
+
+constexpr auto SENSOR_DATA_LOGGING_INTERVAL_MS = 1000;
+constexpr auto SENSOR_DATA_SAVE_INTERVAL = 60;
+
 constexpr auto BROADCAST_SENSOR_DATA_HZ = 100;
 
 /*
- *	Private Static Task
+ *	Private struct
  */
-void staticReadPassiveSensorsTask(void* param)
+struct SensorContext
 {
-    if (param == nullptr)
-    {
-        vTaskDelete(nullptr);
-    }
+	SystemContext* sysCon = nullptr;
+	std::vector<Sensor*>* sensors = nullptr;
+};
 
-    Operation* instance = static_cast<Operation*>(param);
-
-    instance->readPassiveSensorsTask();
-}
-
-void staticBroadcastSensorDataTask(void* param)
+/*
+ *	Private Static Functions
+ */
+static void staticBroadcastSensorData(void* p_sensorContext, esp_event_base_t, int32_t, void*)
 {
-    if (param == nullptr)
-    {
-        vTaskDelete(nullptr);
-    }
+	/*
+	 *	Get the sensors vector
+	 */
+	if (p_sensorContext == nullptr) {
+		return;
+	}
 
-    Operation* instance = static_cast<Operation*>(param);
+	const auto sensorContext = static_cast<SensorContext*>(p_sensorContext);
 
-    instance->broadcastSensorsTask();
-}
+	/*
+	 *	Build basic CAN frame
+	 */
+	Can::Frame frame;
+	frame.sender = CAN_MASTER_ID;
+	frame.target = CAN_BROADCAST_ID;
+	frame.group = CanFrameGroups::GROUP::SENSOR;
+	frame.function = CanFrameGroups::SENSOR::BROADCAST_DATA;
+	frame.dataLengthCode = 8;
+	frame.answer = false;
 
-void staticLogSensorDataTask(void* param)
-{
-    if (param == nullptr)
-    {
-        vTaskDelete(nullptr);
-    }
+	/*
+	 *	Add sensor data
+	 */
+	const auto& sensors = sensorContext->sensors;
 
-    Operation* instance = static_cast<Operation*>(param);
+	// Fuel Level
+	frame.data[0] = sensors->at(0)->get();
 
-    instance->logSensorsTask();
+	// Oil Pressure
+	frame.data[1] = sensors->at(1)->get();
+
+	// Water Temperature
+	frame.data[2] = sensors->at(2)->get() > 90 ? 90 : sensors->at(2)->get();
+
+	// RPM
+	frame.data[3] = sensors->at(3)->get() >> 8;
+	frame.data[4] = sensors->at(3)->get() & 0xFF;
+
+	// Speed
+	frame.data[5] = sensors->at(1)->get();
+
+	// Left Indicator
+	frame.data[6] = sensors->at(2)->get();
+
+	// Right Indicator
+	frame.data[7] = sensors->at(3)->get();
+
+	/*
+	 *	Send the frame
+	 */
+	sensorContext->sysCon->can->queueFrame(frame);
 }
 
 /*
  *	Public Function implementations
  */
-Operation::Operation() :
-    State(State::OPERATION), readPassiveSensorsTaskHandle_(nullptr), broadCastSensorDataTaskHandle_(nullptr)
+Operation::Operation(SystemContext* p_sysCon) : State(State::OPERATION)
 {
-    filesystem_ = Filesystem::get();
-    config_ = core_->getConfig();
-    kline_ = core_->getKLine();
+	sysCon_ = p_sysCon;
 
-    // Install ISR Service for the Active Sensors
-    if (gpio_install_isr_service(ESP_INTR_FLAG_IRAM) != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Failed to install the ISR service");
-    }
+	/*
+	 *	Install ISR Service for the Active Sensors
+	 */
+	if (gpio_install_isr_service(ESP_INTR_FLAG_IRAM) != ESP_OK) {
+		ESP_LOGE(TAG, "Failed to install the ISR service");
+	}
 
-    /*
-     *	Open Sensor Logging .csv
-     */
-    // Gather file index
-    unsigned int sensorFileIndex = 0;
-    if ((*config_)["SensorDataFileIndex"].is<unsigned int>())
-    {
-        sensorFileIndex = (*config_)["SensorDataFileIndex"].as<unsigned int>() + 1;
-        (*config_)["SensorDataFileIndex"] = sensorFileIndex;
-    }
-    (*config_)["SensorDataFileIndex"] = sensorFileIndex;
+	/*
+	 *	Get the current logging file index
+	 */
+	auto json = sysCon_->config->getJson();
+	unsigned int sensorFileIndex = 0;
 
-    // Create and open file
-    const auto fileName = "SensorData_" + std::to_string(sensorFileIndex) + ".csv";
-    filesystem_->createFile(fileName, Filesystem::SD_CARD);
-    sensorDataCsv_ = filesystem_->openFile(fileName, "w", Filesystem::SD_CARD);
-    if (sensorDataCsv_ == nullptr)
-    {
-        ESP_LOGW(TAG, "Failed to create %s", fileName.c_str());
-    }
-    else
-    {
-        ESP_LOGI(TAG, "Created sensor log file %s", fileName.c_str());
-    }
+	// Check if an entry in the config exists
+	if ((*json)["SensorDataFileIndex"].is<unsigned int>()) {
+		// Yes, so pull it and increment it
+		sensorFileIndex = (*json)["SensorDataFileIndex"].as<unsigned int>() + 1;
+	}
 
-    /*
-     *	Simulate Data
-     */
-    if ((*config_)["Simulation"].is<bool>())
-    {
-        simulation_ = (*config_)["Simulation"].as<bool>();
-    }
+	// Save the new index in the config
+	(*json)["SensorDataFileIndex"] = sensorFileIndex;
+	sysCon_->config->save();
 
-    if (simulation_)
-    {
-        simulationData_ = generateSimulationData();
-    }
+	/*
+	 *	Create and open the logging file
+	 */
+	const auto fileName = "SensorData_" + std::to_string(sensorFileIndex) + ".csv";
 
-    core_->saveConfig();
+	// Create the file
+	sysCon_->filesystem->createFile(fileName, Filesystem::SD_CARD);
+
+	// Open it
+	sensorDataCsv_ = sysCon_->filesystem->openFile(fileName, "w", Filesystem::SD_CARD);
+	if (sensorDataCsv_ == nullptr) {
+		ESP_LOGW(TAG, "Failed to create %s", fileName.c_str());
+		return;
+	}
+
+	ESP_LOGI(TAG, "Created sensor log file %s", fileName.c_str());
 }
 
 Operation::~Operation()
 {
-    vTaskDelete(readPassiveSensorsTaskHandle_);
-    vTaskDelete(broadCastSensorDataTaskHandle_);
+	/*
+	 *	Unregister from all events
+	 */
+	for (const auto& event : eventHandlers_) {
+		const auto& base = std::get<0>(event);
+		const auto& id = std::get<1>(event);
+		const auto& handler = std::get<2>(event);
 
-    for (auto& sensor : passiveSensors_)
-    {
-        free(sensor);
-    }
+		esp_event_handler_instance_unregister(base, id, handler);
+	}
+	eventHandlers_.clear();
 
-    for (auto& sensor : activeSensors_)
-    {
-        sensor->disable();
-        free(sensor);
-    }
+	/*
+	 *	Stop all timers
+	 */
+	for (const auto& sensorEntry : passiveSensorTimers_) {
+		xTimerStop(sensorEntry.second, portMAX_DELAY);
+	}
+	xTimerStop(sensorDataLoggingTimer_, portMAX_DELAY);
+
+	/*
+	 *	Delete all sensors
+	 */
+	for (auto& sensor : sensors_) {
+		free(sensor);
+	}
+
+	/*
+	 *	Remove ISR Service for the Active Sensors
+	 */
+	gpio_uninstall_isr_service();
 }
 
 void Operation::enter()
 {
-    /*
-     *	Setup passive sensors
-     */
-    const auto adc1Handle = core_->getAdc();
-    passiveSensors_ = {
-        new FuelLevel(adc1Handle),
-        new OilPressure(adc1Handle),
-        new WaterTemperature(adc1Handle),
-    };
+	/*
+	 *	Register to all events
+	 */
+	registerToEvents();
 
-    /*
-     *	Setup active sensors
-     */
-    activeSensors_ = {
-        new Rpm(),
-        new Speed(),
-        new LeftIndicator(),
-        new RightIndicator(),
-    };
-    for (const auto& sensor : activeSensors_)
-    {
-        sensor->enable();
-    }
+	/*
+	 *	Setup passive sensors
+	 */
+	auto adc1 = sysCon_->adc1;
+	sensors_.push_back(new FuelLevel(&adc1));
+	sensors_.push_back(new OilPressure(&adc1));
+	sensors_.push_back(new WaterTemperature(&adc1));
 
-    /*
-     *	Setup read & broadcast & logging task
-     */
-    if (xTaskCreate(staticReadPassiveSensorsTask, "OperationReadPassiveSensorsTask", 2048, this, 2,
-                    &readPassiveSensorsTaskHandle_) != pdPASS)
-    {
-        ESP_LOGE(TAG, "Failed to create task for reading all passive HW sensors");
-    }
+	/*
+	 *	Setup active sensors
+	 */
+	sensors_.push_back(new Rpm());
+	sensors_.push_back(new Speed());
+	sensors_.push_back(new LeftIndicator());
+	sensors_.push_back(new RightIndicator());
 
-    if (xTaskCreate(staticBroadcastSensorDataTask, "OperationBroadcastSensorDataTask", 2048 * 2, this, 2,
-                    &broadCastSensorDataTaskHandle_) != pdPASS)
-    {
-        ESP_LOGE(TAG, "Failed to create task for broadcasting sensor data");
-    }
+	/*
+	 *	Setup the periodic reading of each passive sensor
+	 */
+	setupPassiveSensorReadings();
 
-    if (xTaskCreate(staticLogSensorDataTask, "OperationLogSensorDataTask", 2048 * 2, this, 3,
-                    &logSensorDataTaskHandle_) != pdPASS)
-    {
-        ESP_LOGE(TAG, "Failed to create task for logging sensor data");
-    }
+	/*
+	 *	Setup the .csv logging of the sensor data
+	 */
+	setupSensorDataLogging();
 
-    /*
-     *	Start requesting the ECU sensors for data logging
-     */
-    // Write first part of header
-    if (sensorDataCsv_ != nullptr)
-    {
-        fprintf(sensorDataCsv_, "FuelLevel, OilPressure, WaterTemperature, RPM, Speed, LIndicator, RIndicator");
-    }
-
-    // Append the sensors to the list of tracked sensors
-    const auto ecuSensorIds = {
-        COOLANT_C, COOLANT_V, INJECTION_MS, RPM, SPEED_KMH
-    };
-    for (auto& id : ecuSensorIds)
-    {
-        for (auto& entry : ECU_SENSORS)
-        {
-            if (entry.first == id)
-            {
-                // Track sensor
-                ecuSensors_.push_back(&entry.second);
-
-                // Append to header
-                fprintf(sensorDataCsv_, ", %s", entry.second.name.c_str());
-
-                break;
-            }
-        }
-    }
-
-    // Close header
-    fprintf(sensorDataCsv_, ";\n");
-    fflush(sensorDataCsv_);
-    fsync(fileno(sensorDataCsv_));
-
-    /*
-     *	Wifi
-     */
-    Wifi::WIFI_TYPE wifiType = Wifi::WIFI_TYPE::HOST;
-    if ((*config_)["ForceWifiMode"].is<unsigned int>())
-    {
-        wifiType = static_cast<Wifi::WIFI_TYPE>((*config_)["ForceWifiMode"].as<int>());
-    }
-
-    Wifi* wifi = nullptr;
-
-    // Host
-    if (wifiType == Wifi::WIFI_TYPE::HOST)
-    {
-        // Create Wifi
-        wifi = new WifiHost();
-        core_->setWifi(wifi);
-
-        // Initialize Wifi
-        wifi->setSSID((*config_)["WifiHost"]["ssid"]);
-        wifi->setPassword((*config_)["WifiHost"]["password"]);
-        wifi->callOnSuccess([this]
-        {
-            WebInterface* webInterface = new WebInterface();
-            core_->setWebinterface(webInterface);
-
-            this->setupDisplayWifi();
-        });
-
-        wifi->start();
-    }
-
-    // Join
-    else if (wifiType == Wifi::WIFI_TYPE::JOIN)
-    {
-        // Create Wifi
-        wifi = new WifiJoin();
-        core_->setWifi(wifi);
-
-        // Initialize Wifi
-        wifi->setSSID((*config_)["WifiJoin"]["ssid"]);
-        wifi->setPassword((*config_)["WifiJoin"]["password"]);
-        wifi->callOnSuccess([this]
-        {
-            WebInterface* webInterface = new WebInterface();
-            core_->setWebinterface(webInterface);
-
-            this->setupDisplayWifi();
-        });
-
-        wifi->start();
-    }
-
-    // Error
-    else
-    {
-        ESP_LOGW(TAG, "Failed to initialize wifi. Continuing without it");
-        return;
-    }
+	/*
+	 *	Wifi
+	 */
+	setupWifi();
 }
 
-void Operation::handleCanFrame(const Can::Frame& frame)
+void Operation::handleCanFrame(const Can::Frame* frame) const
 {
-    if (blocked)
-    {
-        return;
-    }
+	if (frame->group != CanFrameGroups::GROUP::WIFI) {
+		return;
+	}
 
-    if (frame.group != CanFrame::GROUP::WIFI)
-    {
-        return;
-    }
+	/*
+	 * Act depending on the function
+	 */
+	switch (frame->function) {
+		/*
+		 *	Display connected to the Wifi
+		 */
+		case CanFrameGroups::WIFI::JOIN_WIFI:
+			{
+				if (!frame->answer) {
+					return;
+				}
 
-    // Act depending on the function type
-    if (frame.group == CanFrame::WIFI)
-    {
-        // Act depending on the function type
-        switch (frame.function)
-        {
-        case CanFrame::WIFI::JOIN_WIFI:
-            {
-                if (!frame.answer)
-                {
-                    return;
-                }
+				static uint8_t s_counter = 0;
+				esp_rom_printf("Display %d joined Wifi\n", ++s_counter);
+			}
+			break;
 
-                static uint8_t counter = 0;
-                esp_rom_printf("Display %d joined Wifi\n", ++counter);
-            }
-            break;
+		/*
+		 *	Display executed uupdate
+		 */
+		case CanFrameGroups::WIFI::EXECUTE_UPDATE:
+			{
+				if (!frame->answer) {
+					return;
+				}
 
-        case CanFrame::WIFI::EXECUTE_UPDATE:
-            {
-                if (!frame.answer)
-                {
-                    return;
-                }
+				static uint8_t s_counter = 0;
+				ESP_LOGI(TAG, "Display %d executed update successfully!", frame->sender);
 
-                static uint8_t counter = 0;
-                ESP_LOGI(TAG, "Display %d executed update successfully!", frame.sender);
+				/*
+				 * Restart all displays & ourselves when they are ready
+				 */
+				if (++s_counter >= 3) {
+					// Create basic CAN frame
+					Can::Frame txFrame;
+					txFrame.sender = CAN_MASTER_ID;
+					txFrame.target = CAN_BROADCAST_ID;
+					txFrame.group = CanFrameGroups::GROUP::CONFIGURATION;
+					txFrame.function = CanFrameGroups::CONFIGURATION::RESTART;
 
-                // Restart all displays & ourselves when they are ready
-                if (++counter >= 3)
-                {
-                    Can::Frame txFrame;
-                    txFrame.sender = CAN_MASTER_ID;
-                    txFrame.target = CAN_BROADCAST_ID;
-                    txFrame.group = CanFrame::GROUP::CONFIGURATION;
-                    txFrame.function = CanFrame::CONFIGURATION::RESTART;
+					// Send the frame
+					sysCon_->can->queueFrame(txFrame);
 
-                    Core::get()->getCan()->queueFrame(txFrame);
+					// Restart after 1 seconds
+					vTaskDelay(pdMS_TO_TICKS(1000));
+					esp_restart();
+				}
 
-                    vTaskDelay(pdMS_TO_TICKS(1000));
-                    esp_restart();
-                }
-                else
-                {
-                    executeDisplayUpdate(core_->getDisplays()->at(counter).getCanId());
-                }
-            }
-            break;
+				/*
+				 *	Execute the update on the next display
+				 */
+				executeDisplayUpdate(sysCon_->displays.at(s_counter)->getCanId());
+			}
+			break;
 
-        default:
-            break;
-        }
-    }
-}
-
-void Operation::readPassiveSensorsTask() const
-{
-    while (true)
-    {
-        for (auto& sensor : passiveSensors_)
-        {
-            sensor->read();
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(1000.0 / PASSIVE_SENSOR_POLL_HZ));
-    }
-}
-
-void Operation::broadcastSensorsTask() const
-{
-    Can::Frame frame;
-    frame.sender = CAN_MASTER_ID;
-    frame.target = CAN_BROADCAST_ID;
-    frame.group = CanFrame::GROUP::SENSOR;
-    frame.function = CanFrame::SENSOR::BROADCAST_DATA;
-    frame.dataLengthCode = 8;
-    frame.answer = false;
-
-    uint8_t lastData[8] = {0x00};
-
-    while (true)
-    {
-        if (!simulation_)
-        {
-            // Fuel Level, Oil Pressure, Water Temperature
-            for (uint8_t i = 0; i < passiveSensors_.size(); i++)
-            {
-                frame.data[i] = passiveSensors_.at(i)->get();
-
-                if (i == 2 && frame.data[i] > 90)
-                {
-                    frame.data[i] = 90;
-                }
-            }
-            // frame.data[0] = static_cast<uint8_t>(esp_random() % 101);
-
-            // RPM
-            const auto& rpm = activeSensors_.at(0)->get();
-            frame.data[3] = rpm >> 8;
-            frame.data[4] = rpm & 0xFF;
-
-            // Speed
-            frame.data[5] = activeSensors_.at(1)->get();
-
-            // Left Indicator
-            frame.data[6] = activeSensors_.at(2)->get();
-
-            // Right Indicator
-            frame.data[7] = activeSensors_.at(3)->get();
-
-            // Did the data stay the same?
-            bool equal = true;
-            for (uint8_t i = 0; i < frame.dataLengthCode; i++)
-            {
-                equal &= frame.data[i] == lastData[i];
-            }
-
-            if (!equal)
-            {
-                core_->getCan()->queueFrame(frame);
-                memcpy(lastData, frame.data, frame.dataLengthCode);
-            }
-
-            vTaskDelay(pdMS_TO_TICKS(1000 / BROADCAST_SENSOR_DATA_HZ));
-        }
-        else
-        {
-            static unsigned int frameIndex = 0;
-
-            lastData[0] = simulationData_[frameIndex][0];
-            lastData[1] = simulationData_[frameIndex][1];
-            lastData[2] = simulationData_[frameIndex][2];
-            lastData[3] = simulationData_[frameIndex][3];
-            lastData[4] = simulationData_[frameIndex][4];
-            lastData[5] = simulationData_[frameIndex][5];
-            lastData[6] = simulationData_[frameIndex][6];
-            lastData[7] = simulationData_[frameIndex][7];
-            core_->getCan()->queueFrame(frame);
-
-            frameIndex++;
-            vTaskDelay(pdMS_TO_TICKS(1000 / 60));
-        }
-    }
-}
-
-void Operation::logSensorsTask() const
-{
-    if (sensorDataCsv_ == nullptr)
-    {
-        vTaskDelete(nullptr);
-    }
-
-    while (true)
-    {
-    std::string row = "";
-
-        /*
-         *	Request new data from the ECU
-         */
-        for (auto& sensor : ecuSensors_)
-        {
-            kline_->readPid(sensor->id);
-        }
-
-        /*
-         *	Append active & passive hardware sensor data
-         */
-        for (const auto& s : passiveSensors_)
-        {
-            row += std::to_string(s->get());
-            row += ", ";
-        }
-        for (const auto& s : activeSensors_)
-        {
-            row += std::to_string(s->get());
-            row += ", ";
-        }
-
-        /*
-         *	Append ECU sensor data
-         */
-        for (const auto& s : ecuSensors_)
-        {
-            row += std::to_string(s->getConvertedValue());
-
-            if (s != ecuSensors_.back())
-            {
-                row += ", ";
-            }
-        }
-
-        row += ';';
-
-        /*
-         *	Write data to the .csv file
-         */
-        fprintf(sensorDataCsv_, "%s\n", row.c_str());
-
-        /*
-         *	Flush to file every 60s
-         */
-        static unsigned int counter = 0;
-        if (++counter % 60 == 0)
-        {
-            fflush(sensorDataCsv_);
-            fsync(fileno(sensorDataCsv_));
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(500));
-    }
+		default:
+			break;
+	}
 }
 
 /*
  *	Private Function Implementations
  */
-void Operation::setupDisplayWifi() const
+void Operation::registerToEvents()
 {
-    ESP_LOGI(TAG, "Starting to transmit SSID and Password to the displays");
+	/*
+	 *	CAN frame received
+	 */
+	eventHandlers_.push_back(std::make_tuple(SYSTEM_EVENT_BASE, CAN_FRAME_RECEIVED, esp_event_handler_instance_t()));
+	esp_event_handler_instance_register(
+		SYSTEM_EVENT_BASE, CAN_FRAME_RECEIVED,
+		[](void* p_state, esp_event_base_t, int32_t, void* p_payload)
+		{
+			/*
+			 *	Get the state ptr
+			 */
+			if (p_state == nullptr) {
+				return;
+			}
 
-    /*
-     *	Transmit own IP
-     */
-    Can::Frame transmitMasterIpFrame;
-    transmitMasterIpFrame.sender = CAN_MASTER_ID;
-    transmitMasterIpFrame.target = CAN_BROADCAST_ID;
-    transmitMasterIpFrame.group = CanFrame::GROUP::WIFI;
-    transmitMasterIpFrame.function = CanFrame::WIFI::SET_MASTER_IP;
-    transmitMasterIpFrame.dataLengthCode = 4;
+			// Convert it
+			Operation* state = static_cast<Operation*>(p_state);
 
-    const auto& ip = core_->getWifi()->getIp();
-    transmitMasterIpFrame.data[0] = ip[0];
-    transmitMasterIpFrame.data[1] = ip[1];
-    transmitMasterIpFrame.data[2] = ip[2];
-    transmitMasterIpFrame.data[3] = ip[3];
-    Core::get()->getCan()->queueFrame(transmitMasterIpFrame);
+			/*
+			 *	Get the payload
+			 */
+			if (p_payload == nullptr) {
+				return;
+			}
 
-    /*
-     *	SSID
-     */
-    // Split the ssid up into packages with a size of max 8 bytes/chars
-    const auto& ssid = core_->getWifi()->getSSID();
-    std::vector<std::vector<char>> allSsidPackages;
-    std::vector<char> ssidPackage;
-    for (const auto& c : ssid)
-    {
-        if (ssidPackage.size() >= 8)
-        {
-            allSsidPackages.push_back(ssidPackage);
-            ssidPackage.clear();
-        }
+			Can::Frame* frame = static_cast<Can::Frame*>(p_payload);
 
-        ssidPackage.push_back(c);
-    }
-    allSsidPackages.push_back(ssidPackage); // Add the last package too
+			/*
+			 *	Pass the register call
+			 */
+			state->handleCanFrame(frame);
+		},
+		this, &get<2>(eventHandlers_.back()));
 
-    // Transmit all packages to the displays
-    for (const auto& package : allSsidPackages)
-    {
-        Can::Frame ssidPackageFrame;
-        ssidPackageFrame.sender = CAN_MASTER_ID;
-        ssidPackageFrame.target = CAN_BROADCAST_ID;
-        ssidPackageFrame.group = CanFrame::GROUP::WIFI;
-        ssidPackageFrame.function = CanFrame::WIFI::SET_SSID;
-        ssidPackageFrame.dataLengthCode = package.size();
-        std::copy(package.begin(), package.end(), ssidPackageFrame.data);
+	/*
+	 *	Display update completed
+	 */
+	eventHandlers_.push_back(
+		std::make_tuple(SYSTEM_EVENT_BASE, DISPLAY_UPDATE_DOWNLOADED, esp_event_handler_instance_t()));
+	esp_event_handler_instance_register(
+		SYSTEM_EVENT_BASE, DISPLAY_UPDATE_DOWNLOADED,
+		[](void* p_state, esp_event_base_t, int32_t, void*)
+		{
+			/*
+			 *	Get the state ptr
+			 */
+			if (p_state == nullptr) {
+				return;
+			}
 
-        Core::get()->getCan()->queueFrame(ssidPackageFrame);
-    }
+			// Convert it
+			Operation* state = static_cast<Operation*>(p_state);
 
-    /*
-     *	Password
-     */
-    // Split the password up into packages with a size of max 8 bytes/chars
-    const auto& password = core_->getWifi()->getPassword();
-    std::vector<std::vector<char>> allPsswdPackages;
-    std::vector<char> psswdPackage;
-    for (const auto& c : password)
-    {
-        if (psswdPackage.size() >= 8)
-        {
-            allPsswdPackages.push_back(psswdPackage);
-            psswdPackage.clear();
-        }
+			/*
+			 *	Execute the update on the next display
+			 */
+			state->executeDisplayUpdate(state->sysCon_->displays.at(0)->getCanId());
+		},
+		this, &get<2>(eventHandlers_.back()));
+}
 
-        psswdPackage.push_back(c);
-    }
-    allPsswdPackages.push_back(psswdPackage); // Add the last package too
+void Operation::setupPassiveSensorReadings()
+{
+	// Fuel Level
+	PassiveSensor* sensor = static_cast<PassiveSensor*>(sensors_.at(0));
+	passiveSensorTimers_[sensor] =
+		xTimerCreate("Periodic Fuel Level read timer", FUEL_LEVEL_READ_INTERVAL_MS, pdTRUE, &sensors_,
+					 [](const TimerHandle_t p_timerHandle)
+					 {
+						 /*
+						  *	Get the sensors vector
+						  */
+						 const auto sensors = static_cast<std::vector<Sensor*>*>(pvTimerGetTimerID(p_timerHandle));
 
-    // Transmit all packages to the displays
-    for (const auto& package : allPsswdPackages)
-    {
-        Can::Frame passwordPackageFrame;
-        passwordPackageFrame.sender = CAN_MASTER_ID;
-        passwordPackageFrame.target = CAN_BROADCAST_ID;
-        passwordPackageFrame.group = CanFrame::GROUP::WIFI;
-        passwordPackageFrame.function = CanFrame::WIFI::SET_PASSWORD;
-        passwordPackageFrame.dataLengthCode = package.size();
-        std::copy(package.begin(), package.end(), passwordPackageFrame.data);
+						 /*
+						  *	Cast the sensor
+						  */
+						 const auto sensor = static_cast<PassiveSensor*>(sensors->at(0));
 
-        Core::get()->getCan()->queueFrame(passwordPackageFrame);
-    }
+						 /*
+						  *	Read the sensor
+						  */
+						 sensor->read();
+					 });
 
-    /*
-     *	Join Wifi
-     */
-    Can::Frame joinWifiFrame;
-    joinWifiFrame.sender = CAN_MASTER_ID;
-    joinWifiFrame.target = CAN_BROADCAST_ID;
-    joinWifiFrame.group = CanFrame::GROUP::WIFI;
-    joinWifiFrame.function = CanFrame::WIFI::JOIN_WIFI;
-    joinWifiFrame.dataLengthCode = 0;
+	// Oil Pressure
+	sensor = static_cast<PassiveSensor*>(sensors_.at(1));
+	passiveSensorTimers_[sensor] =
+		xTimerCreate("Periodic Oil Pressure read timer", OIL_PRESSURE_READ_INTERVAL_MS, pdTRUE, &sensors_,
+					 [](const TimerHandle_t p_timerHandle)
+					 {
+						 /*
+						  *	Get the sensors vector
+						  */
+						 const auto sensors = static_cast<std::vector<Sensor*>*>(pvTimerGetTimerID(p_timerHandle));
 
-    Core::get()->getCan()->queueFrame(joinWifiFrame);
+						 /*
+						  *	Cast the sensor
+						  */
+						 const auto sensor = static_cast<PassiveSensor*>(sensors->at(1));
+
+						 /*
+						  *	Read the sensor
+						  */
+						 sensor->read();
+					 });
+
+	// Water Temperature
+	sensor = static_cast<PassiveSensor*>(sensors_.at(2));
+	passiveSensorTimers_[sensor] =
+		xTimerCreate("Periodic Water Temperature read timer", WATER_TEMP_READ_INTERVAL_MS, pdTRUE, &sensors_,
+					 [](const TimerHandle_t p_timerHandle)
+					 {
+						 /*
+						  *	Get the sensors vector
+						  */
+						 const auto sensors = static_cast<std::vector<Sensor*>*>(pvTimerGetTimerID(p_timerHandle));
+
+						 /*
+						  *	Cast the sensor
+						  */
+						 const auto sensor = static_cast<PassiveSensor*>(sensors->at(2));
+
+						 /*
+						  *	Read the sensor
+						  */
+						 sensor->read();
+					 });
+}
+
+void Operation::setupSensorBroadcasting()
+{
+	SensorContext senCon{.sysCon = sysCon_, .sensors = &sensors_};
+
+	/*
+	 *	Fuel Level Changed
+	 */
+	eventHandlers_.push_back(std::make_tuple(SYSTEM_EVENT_BASE, FUEL_LEVEL_CHANGED, esp_event_handler_instance_t()));
+	esp_event_handler_instance_register(SYSTEM_EVENT_BASE, FUEL_LEVEL_CHANGED, staticBroadcastSensorData, &senCon,
+										&get<2>(eventHandlers_.back()));
+
+	/*
+	 *	Oil Pressure Changed
+	 */
+	eventHandlers_.push_back(std::make_tuple(SYSTEM_EVENT_BASE, OIL_PRESSURE_CHANGED, esp_event_handler_instance_t()));
+	esp_event_handler_instance_register(SYSTEM_EVENT_BASE, OIL_PRESSURE_CHANGED, staticBroadcastSensorData, &senCon,
+										&get<2>(eventHandlers_.back()));
+
+	/*
+	 *	Water Temperature Changed
+	 */
+	eventHandlers_.push_back(std::make_tuple(SYSTEM_EVENT_BASE, WATER_TEMP_CHANGED, esp_event_handler_instance_t()));
+	esp_event_handler_instance_register(SYSTEM_EVENT_BASE, WATER_TEMP_CHANGED, staticBroadcastSensorData, &senCon,
+										&get<2>(eventHandlers_.back()));
+
+	/*
+	 *	RPM Changed
+	 */
+	eventHandlers_.push_back(std::make_tuple(SYSTEM_EVENT_BASE, RPM_CHANGED, esp_event_handler_instance_t()));
+	esp_event_handler_instance_register(SYSTEM_EVENT_BASE, RPM_CHANGED, staticBroadcastSensorData, &senCon,
+										&get<2>(eventHandlers_.back()));
+
+	/*
+	 *	Speed Changed
+	 */
+	eventHandlers_.push_back(std::make_tuple(SYSTEM_EVENT_BASE, SPEED_CHANGED, esp_event_handler_instance_t()));
+	esp_event_handler_instance_register(SYSTEM_EVENT_BASE, SPEED_CHANGED, staticBroadcastSensorData, &senCon,
+										&get<2>(eventHandlers_.back()));
+
+	/*
+	 *	Left Indicator Changed
+	 */
+	eventHandlers_.push_back(
+		std::make_tuple(SYSTEM_EVENT_BASE, LEFT_INDICATOR_ACTIVE_CHANGED, esp_event_handler_instance_t()));
+	esp_event_handler_instance_register(SYSTEM_EVENT_BASE, LEFT_INDICATOR_ACTIVE_CHANGED, staticBroadcastSensorData,
+										&senCon, &get<2>(eventHandlers_.back()));
+
+	/*
+	 *	Right Indicator Changed
+	 */
+	eventHandlers_.push_back(
+		std::make_tuple(SYSTEM_EVENT_BASE, RIGHT_INDICATOR_ACTIVE_CHANGED, esp_event_handler_instance_t()));
+	esp_event_handler_instance_register(SYSTEM_EVENT_BASE, RIGHT_INDICATOR_ACTIVE_CHANGED, staticBroadcastSensorData,
+										&senCon, &get<2>(eventHandlers_.back()));
+}
+
+void Operation::setupSensorDataLogging()
+{
+	/*
+	 *	Setup data logging
+	 */
+	sensorDataLoggingTimer_ = xTimerCreate("Sensor data logging timer", SENSOR_DATA_LOGGING_INTERVAL_MS, pdTRUE, this,
+										   [](const TimerHandle_t p_timerHandle)
+										   {
+											   /*
+												*	Get the state instance
+												*/
+											   const auto state =
+												   static_cast<Operation*>(pvTimerGetTimerID(p_timerHandle));
+
+											   /*
+												*	Trigger the logging function
+												*/
+											   state->logSensorData();
+										   });
+
+	/*
+	 *	Initialize the header in the .csv file
+	 */
+	if (sensorDataCsv_ != nullptr) {
+		fprintf(sensorDataCsv_, "FuelLevel, OilPressure, WaterTemperature, RPM, Speed, LIndicator, RIndicator");
+	}
+
+	/*
+	 *	Track specified ECU sensors and add them to the header
+	 */
+	// Append the sensors to the list of tracked sensors
+	const auto sensorsToTrack = {COOLANT_C, COOLANT_V, INJECTION_MS, RPM, SPEED_KMH};
+	for (auto& sensor : sensorsToTrack) {
+		if (!ECU_SENSORS.contains(sensor)) {
+			continue;
+		}
+
+		// Track sensor
+		ecuSensors_.push_back(&ECU_SENSORS[sensor]);
+
+		// Append to header
+		fprintf(sensorDataCsv_, ", %s", ECU_SENSORS[sensor].name.c_str());
+	}
+
+	/*
+	 *	End the header
+	 */
+	fprintf(sensorDataCsv_, ";\n");
+	fflush(sensorDataCsv_);
+	fsync(fileno(sensorDataCsv_));
+}
+
+void Operation::setupWifi() const
+{
+	Wifi::WIFI_TYPE wifiType = Wifi::WIFI_TYPE::HOST;
+	const auto json = sysCon_->config->getJson();
+
+	/*
+	 *	Delete old Wifi
+	 */
+	if (sysCon_->wifi != nullptr) {
+		free(sysCon_->wifi);
+		sysCon_->wifi = nullptr;
+	}
+
+	/*
+	 *	Get Wifi mode
+	 */
+	if ((*json)["ForceWifiMode"].is<unsigned int>()) {
+		wifiType = static_cast<Wifi::WIFI_TYPE>((*json)["ForceWifiMode"].as<int>());
+	}
+
+	/*
+	 *	Setup Wifi Host
+	 */
+	if (wifiType == Wifi::WIFI_TYPE::HOST) {
+		// Create Wifi
+		sysCon_->wifi = new WifiHost(sysCon_);
+
+		// Initialize Wifi
+		sysCon_->wifi->setSSID((*json)["WifiHost"]["ssid"]);
+		sysCon_->wifi->setPassword((*json)["WifiHost"]["password"]);
+	}
+
+	/*
+	 *	Setup Wifi Join
+	 */
+	else if (wifiType == Wifi::WIFI_TYPE::JOIN) {
+		// Create Wifi
+		sysCon_->wifi = new WifiJoin(sysCon_);
+
+		// Initialize Wifi
+		sysCon_->wifi->setSSID((*json)["WifiJoin"]["ssid"]);
+		sysCon_->wifi->setPassword((*json)["WifiJoin"]["password"]);
+	}
+
+	// Error
+	else {
+		ESP_LOGW(TAG, "Failed to initialize wifi. Continuing without it");
+		return;
+	}
+
+	/*
+	 *	Start Wifi
+	 */
+	sysCon_->wifi->callOnSuccess(
+		[this]
+		{
+			// Create and start WebInterface
+			sysCon_->webInterface = new WebInterface(sysCon_);
+
+			// Initialize display Wifi
+			this->connectDisplaysToWifi();
+		});
+
+	sysCon_->wifi->start();
+}
+
+void Operation::logSensorData() const
+{
+	/*
+	 *	Error protection
+	 */
+	if (sensorDataCsv_ == nullptr) {
+		xTimerStop(sensorDataLoggingTimer_, portMAX_DELAY);
+		return;
+	}
+
+	/*
+	 *	Request new data from the ECU
+	 */
+	for (const auto& sensor : ecuSensors_) {
+		sysCon_->kline->readPid(sensor->id);
+	}
+
+	/*
+	 *	Append active & passive hardware sensor data
+	 */
+	std::string row = "";
+	for (const auto& sensor : sensors_) {
+		row += std::to_string(sensor->get());
+		row += ", ";
+	}
+
+	/*
+	 *	Append ECU sensor data
+	 */
+	for (const auto& ecuSensor : ecuSensors_) {
+		row += std::to_string(ecuSensor->getConvertedValue());
+
+		// Check if we need to append a comma at the end
+		if (ecuSensor != ecuSensors_.back()) {
+			row += ", ";
+		}
+	}
+
+	// Finish the row
+	row += ';';
+
+	/*
+	 *	Write data to the .csv file
+	 */
+	fprintf(sensorDataCsv_, "%s\n", row.c_str());
+
+	/*
+	 *	Flush to actual file every X seconds
+	 */
+	static unsigned int s_counter = 0;
+	if (++s_counter % SENSOR_DATA_SAVE_INTERVAL == 0) {
+		fflush(sensorDataCsv_);
+		fsync(fileno(sensorDataCsv_));
+	}
+}
+
+void Operation::connectDisplaysToWifi() const
+{
+	ESP_LOGI(TAG, "Starting to transmit SSID and Password to the displays");
+
+	/*
+	 *	Transmit own IP
+	 */
+	// Build the basic CAN frame
+	Can::Frame transmitMasterIpFrame;
+	transmitMasterIpFrame.sender = CAN_MASTER_ID;
+	transmitMasterIpFrame.target = CAN_BROADCAST_ID;
+	transmitMasterIpFrame.group = CanFrameGroups::GROUP::WIFI;
+	transmitMasterIpFrame.function = CanFrameGroups::WIFI::SET_MASTER_IP;
+	transmitMasterIpFrame.dataLengthCode = 4;
+
+	// Add the master IP address
+	const auto& ip = sysCon_->wifi->getIp();
+	transmitMasterIpFrame.data[0] = ip[0];
+	transmitMasterIpFrame.data[1] = ip[1];
+	transmitMasterIpFrame.data[2] = ip[2];
+	transmitMasterIpFrame.data[3] = ip[3];
+
+	// Send it
+	sysCon_->can->queueFrame(transmitMasterIpFrame);
+
+	/*
+	 *	Split the SSID into transferable packages
+	 */
+	const auto& ssid = sysCon_->wifi->getSSID();
+	std::vector<std::vector<char>> allSsidPackages;
+	std::vector<char> ssidPackage;
+
+	// Split the ssid up into packages with a size of max 8 bytes/chars
+	for (const auto& c : ssid) {
+		if (ssidPackage.size() >= 8) {
+			allSsidPackages.push_back(ssidPackage);
+			ssidPackage.clear();
+		}
+
+		ssidPackage.push_back(c);
+	}
+
+	// Add the last package too
+	allSsidPackages.push_back(ssidPackage);
+
+	/*
+	 * Transmit the SSID
+	 */
+	for (const auto& package : allSsidPackages) {
+		// Build the basic CAN frame
+		Can::Frame ssidPackageFrame;
+		ssidPackageFrame.sender = CAN_MASTER_ID;
+		ssidPackageFrame.target = CAN_BROADCAST_ID;
+		ssidPackageFrame.group = CanFrameGroups::GROUP::WIFI;
+		ssidPackageFrame.function = CanFrameGroups::WIFI::SET_SSID;
+		ssidPackageFrame.dataLengthCode = package.size();
+
+		// Fill in the SSID package
+		std::copy(package.begin(), package.end(), ssidPackageFrame.data);
+
+		// Send the frame
+		sysCon_->can->queueFrame(ssidPackageFrame);
+	}
+
+	/*
+	 *	Split the Password into transferable packages
+	 */
+	const auto& password = sysCon_->wifi->getPassword();
+	std::vector<std::vector<char>> allPsswdPackages;
+	std::vector<char> psswdPackage;
+
+	// Split the password up into packages with a size of max 8 bytes/chars
+	for (const auto& c : password) {
+		if (psswdPackage.size() >= 8) {
+			allPsswdPackages.push_back(psswdPackage);
+			psswdPackage.clear();
+		}
+
+		psswdPackage.push_back(c);
+	}
+
+	// Add the last package too
+	allPsswdPackages.push_back(psswdPackage);
+
+	/*
+	 * Transmit the password
+	 */
+	for (const auto& package : allPsswdPackages) {
+		// Build the basic CAN frame
+		Can::Frame passwordPackageFrame;
+		passwordPackageFrame.sender = CAN_MASTER_ID;
+		passwordPackageFrame.target = CAN_BROADCAST_ID;
+		passwordPackageFrame.group = CanFrameGroups::GROUP::WIFI;
+		passwordPackageFrame.function = CanFrameGroups::WIFI::SET_PASSWORD;
+		passwordPackageFrame.dataLengthCode = package.size();
+
+		// Fill in the password package
+		std::copy(package.begin(), package.end(), passwordPackageFrame.data);
+
+		// Send the frame
+		sysCon_->can->queueFrame(passwordPackageFrame);
+	}
+
+	/*
+	 *	Instruct the displays to join the Wifi
+	 */
+	Can::Frame joinWifiFrame;
+	joinWifiFrame.sender = CAN_MASTER_ID;
+	joinWifiFrame.target = CAN_BROADCAST_ID;
+	joinWifiFrame.group = CanFrameGroups::GROUP::WIFI;
+	joinWifiFrame.function = CanFrameGroups::WIFI::JOIN_WIFI;
+	joinWifiFrame.dataLengthCode = 0;
+
+	sysCon_->can->queueFrame(joinWifiFrame);
 }
 
 void Operation::executeDisplayUpdate(const uint8_t displayId) const
 {
-    ESP_LOGI(TAG, "Executing update for display with ID %d!", displayId);
+	ESP_LOGI(TAG, "Executing update for display with ID %d!", displayId);
 
-    Can::Frame txFrame;
-    txFrame.sender = CAN_MASTER_ID;
-    txFrame.target = displayId;
-    txFrame.group = CanFrame::GROUP::WIFI;
-    txFrame.function = CanFrame::WIFI::EXECUTE_UPDATE;
+	// Build the basic CAN frame
+	Can::Frame frame;
+	frame.sender = CAN_MASTER_ID;
+	frame.target = displayId;
+	frame.group = CanFrameGroups::GROUP::WIFI;
+	frame.function = CanFrameGroups::WIFI::EXECUTE_UPDATE;
 
-    Core::get()->getCan()->queueFrame(txFrame);
+	// Send the frame
+	sysCon_->can->queueFrame(frame);
 }

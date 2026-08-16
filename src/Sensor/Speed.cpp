@@ -1,9 +1,13 @@
 #include "Sensor/Speed.hpp"
 
+// Project includes
+#include "Events.hpp"
+
 // C++ includes
 #include <math.h>
 
 // espidf includes
+#include "esp_event.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 
@@ -19,9 +23,7 @@ constexpr uint16_t DEBOUNCE_TIME_US = 2000;
 /*
  *	Public Function Implementations
  */
-Speed::Speed() : ActiveSensor(GPIO_NUM_10, GPIO_INTR_POSEDGE)
-{
-}
+Speed::Speed() : ActiveSensor(GPIO_NUM_10, GPIO_INTR_POSEDGE) {}
 
 int Speed::get()
 {
@@ -68,4 +70,11 @@ void Speed::cb()
 	}
 
 	portEXIT_CRITICAL_ISR(&mux_);
+}
+
+void Speed::notifyAboutNewValue()
+{
+	const auto& value = get();
+
+	esp_event_post(SYSTEM_EVENT_BASE, SPEED_CHANGED, &value, sizeof(value), portMAX_DELAY);
 }

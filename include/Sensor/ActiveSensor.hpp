@@ -1,19 +1,20 @@
 #pragma once
 
+// Project includes
+#include "Sensor.hpp"
+
 // espidf includes
 #include "driver/gpio.h"
 #include "esp_attr.h"
 
-class ActiveSensor
+class ActiveSensor : public Sensor
 {
 public:
 	ActiveSensor(gpio_num_t gpio, const gpio_int_type_t& triggeringEdge);
 
-	void enable();
+	~ActiveSensor() override;
 
-	void disable();
-
-	virtual int get();
+	int get() override;
 
 	/*
 	 *	Public Callback functions
@@ -22,9 +23,12 @@ public:
 
 protected:
 	/*
+	 *	Private Functions
+	 */
+	void notifyAboutNewValue() override;
+
+	/*
 	 *	Private Variables
 	 */
-	bool enabled_ = false;
-
 	gpio_num_t gpio_ = GPIO_NUM_NC;
 };

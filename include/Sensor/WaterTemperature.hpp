@@ -18,6 +18,8 @@ protected:
 
 	void calcTemperature(uint16_t r);
 
+	void notifyAboutNewValue() override;
+
 	/*
 	 *	Private Variables
 	 */

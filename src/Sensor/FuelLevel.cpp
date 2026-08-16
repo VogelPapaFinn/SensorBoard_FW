@@ -1,10 +1,13 @@
 #include "Sensor/FuelLevel.hpp"
 
+// Project includes
+#include "Events.hpp"
+
 // C++ includes
 #include <algorithm>
-#include <cmath>
 
 // espidf includes
+#include "esp_event.h"
 #include <esp_log.h>
 
 /*
@@ -30,8 +33,8 @@ constexpr uint8_t AMOUNT_LEVEL_TUPLES = std::size(LEVEL_RESISTANCE_TUPLES);
 /*
  *	Public Function Implementations
  */
-FuelLevel::FuelLevel(adc_oneshot_unit_handle_t* adc) :
-	PassiveSensor(GPIO_NUM_1, ADC_CHANNEL_0, adc)
+FuelLevel::FuelLevel(adc_oneshot_unit_handle_t* p_adc) :
+	PassiveSensor(GPIO_NUM_1, ADC_CHANNEL_0, p_adc)
 {
 }
 
@@ -113,4 +116,11 @@ void FuelLevel::calcLevel()
 		lastLevels_.erase(lastLevels_.begin());
 	}
 	lastLevels_.push_back(levelInPercent);
+}
+
+void FuelLevel::notifyAboutNewValue()
+{
+	const auto& value = get();
+
+	esp_event_post(SYSTEM_EVENT_BASE, FUEL_LEVEL_CHANGED, &value, sizeof(value), portMAX_DELAY);
 }

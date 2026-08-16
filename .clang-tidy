@@ -15,6 +15,8 @@ Checks: >
   -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
 
 CheckOptions:
+  readability-identifier-naming.ConstexprVariableCase: UPPER_CASE
+  readability-identifier-naming.ConstexprVariablePrefix: ''
   # -------------------------------------------------------------------------
   # Konfiguration für readability-identifier-naming
   # -------------------------------------------------------------------------

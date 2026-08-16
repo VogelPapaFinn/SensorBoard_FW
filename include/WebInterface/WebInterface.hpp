@@ -11,15 +11,13 @@
 class WebInterface
 {
 public:
-	WebInterface();
+	WebInterface(SystemContext* p_sysCon);
 
 	void send(int clientFD, const std::string& data) const;
 
 	std::unordered_map<int, std::vector<uint16_t>>& getTrackedSensors();
 
 	SemaphoreHandle_t& getSensorsMutex();
-
-	KLine* getKLine();
 
 	/*
 	 *	Private ISRs
@@ -40,6 +38,8 @@ private:
 	/*
 	 *	Private Variables
 	 */
+	SystemContext* sysCon_;
+
 	bool initialized_ = false;
 
 	httpd_config_t httpdConfig_ = HTTPD_DEFAULT_CONFIG();
@@ -50,6 +50,4 @@ private:
 	TaskHandle_t updateSensorsDataTask_ = nullptr;
 
 	FILE* displayUpdateFile_ = nullptr;
-
-	KLine* kline_ = nullptr;
 };

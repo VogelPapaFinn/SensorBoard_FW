@@ -1,6 +1,10 @@
 #include "Sensor/ActiveSensor.hpp"
 
+// Project include
+#include "Events.hpp"
+
 // espidf includes
+#include "esp_event.h"
 #include "esp_log.h"
 
 /*
@@ -26,39 +30,39 @@ static IRAM_ATTR void staticIsr(void* arg)
  */
 ActiveSensor::ActiveSensor(const gpio_num_t gpio, const gpio_int_type_t& triggeringEdge)
 {
+	/*
+	 *	Setup the GPIO
+	 */
 	gpio_ = gpio;
 	gpio_set_direction(gpio_, GPIO_MODE_INPUT);
 	gpio_set_intr_type(gpio_, triggeringEdge);
 
-	enable();
-}
-
-void ActiveSensor::enable()
-{
-	if (enabled_) {
-		return;
-	}
-
+	/*
+	 *	Enable the ISR
+	 */
 	if (gpio_isr_handler_add(gpio_, staticIsr, this) != ESP_OK) {
 		ESP_LOGE(TAG, "Failed to enable the ISR");
 	}
-
-	enabled_ = true;
 }
 
-void ActiveSensor::disable()
+ActiveSensor::~ActiveSensor()
 {
-	if (!enabled_) {
-		return;
-	}
-
+	// Disable the ISR
 	if (gpio_isr_handler_remove(gpio_) != ESP_OK) {
 		ESP_LOGE(TAG, "Failed to disable the ISR");
 	}
 
-	enabled_ = false;
+	// Reset the GPIO direction
+	gpio_set_direction(gpio_, GPIO_MODE_DISABLE);
 }
 
 int ActiveSensor::get() { return 0; }
 
 void ActiveSensor::cb() {}
+
+void ActiveSensor::notifyAboutNewValue()
+{
+	constexpr int VALUE = 0;
+
+	esp_event_post(SYSTEM_EVENT_BASE, PASSIVE_SENSOR_VALUE_CHANGED, &VALUE, sizeof(VALUE), portMAX_DELAY);
+}

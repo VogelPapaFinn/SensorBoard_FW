@@ -20,6 +20,11 @@ public:
 
 private:
 	/*
+	 *	Private Functions
+	 */
+	void notifyAboutNewValue() override;
+
+	/*
 	 *	Private Variables
 	 */
 	volatile int64_t lastFallingEdgeTime_ = 0;

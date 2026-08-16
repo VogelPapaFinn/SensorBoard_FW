@@ -2,36 +2,31 @@
 
 // Project include
 #include "State/State.hpp"
+#include "SystemContext.hpp"
 
 class Registration : public State
 {
 public:
-	Registration();
+	Registration(SystemContext* p_sysCon);
+
+	~Registration();
 
 	void enter() override;
-
-	void handleCanFrame(const Can::Frame& frame) override;
 
 private:
 	/*
 	 *	Private Functions
 	 */
-	void confirmId(const uint8_t& id);
-
-	void setId(const uint8_t& oldId, const uint8_t& newId);
+	void registerToEvents();
 
 	void nextDisplay();
 
-	void setScreen() const;
-
-	void setRotation() const;
-
-	void confirmConfiguration() const;
-
-	void wakeUpAllDisplays();
+	void wakeUpAllDisplays() const;
 
 	/*
 	 *	Private Variables
 	 */
+	SystemContext* sysCon_ = nullptr;
+
 	uint8_t currDisplay = 0;
 };

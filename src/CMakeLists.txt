@@ -13,14 +13,16 @@ set(FILES
         # WebInterface
         "WebInterface/WebInterface.cpp"
 
-        # Core
-        "Core.cpp"
+        # Events
+        "Events.cpp"
 
         # States
         "State/State.cpp"
         "State/Registration.cpp"
         "State/Operation.cpp"
-        "State/WifiOtaUpdate.cpp"
+
+        # Handlers
+        "Handler/RegistrationHandler.cpp"
 
         # Sensors
         "Sensor/ActiveSensor.cpp"

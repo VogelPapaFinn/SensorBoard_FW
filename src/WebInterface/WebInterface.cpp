@@ -2,8 +2,7 @@
 
 // Project includes
 #include "Driver/EcuSensors.hpp"
-#include "Event.hpp"
-#include "Core.hpp"
+#include "Events.hpp"
 
 // C++ includes
 #include <sstream>
@@ -26,10 +25,6 @@ constexpr auto JSON_WIFI_JOIN = "WifiJoin";
 constexpr uint16_t FILE_CHUNK_SIZE_B = 1024;
 
 constexpr uint16_t WEBSOCKET_RECV_BUFFER_B = 256;
-
-constexpr httpd_uri_t FILE_URI = {
-	.uri = "/*", .method = HTTP_GET, .handler = fileHandler, .user_ctx = nullptr
-};
 
 /*
  *	Private Static ISR
@@ -70,6 +65,12 @@ static std::string getMimeType(const std::string& filepath)
 
 static esp_err_t fileHandler(httpd_req_t* p_reqst)
 {
+	if (p_reqst == nullptr) {
+		return ESP_FAIL;
+	}
+
+	auto sysCon = static_cast<SystemContext*>(p_reqst->user_ctx);
+
 	std::string filepath;
 	Filesystem::Location location = Filesystem::DATA_PARTITION;
 
@@ -96,7 +97,7 @@ static esp_err_t fileHandler(httpd_req_t* p_reqst)
 	}
 
 	// Datei mit der dynamisch ermittelten Location öffnen
-	FILE* reqFile = Filesystem::get()->openFile(filepath, "rb", location);
+	FILE* reqFile = sysCon->filesystem->openFile(filepath, "rb", location);
 	if (reqFile == nullptr) {
 		esp_rom_printf("[%s] Couldn't open file: %s on location: %d\n", TAG, filepath.c_str(), location);
 		httpd_resp_send_404(p_reqst);
@@ -197,25 +198,25 @@ static esp_err_t staticDisplayUpdateDownloadHandler(httpd_req_t* p_reqst)
 	return web->displayUpdateDownloadHandler(p_reqst);
 }
 
-static void updateSensorsTask(void* param)
+static void updateSensorsTask(void* p_param)
 {
-	if (param == nullptr) {
+	if (p_param == nullptr) {
 		ESP_LOGE("updateSensorsTask", "Killed itself");
 		vTaskDelete(nullptr);
 	}
 
-	WebInterface* web = static_cast<WebInterface*>(param);
-	auto mutex = web->getSensorsMutex();
+	SystemContext* sysCon = static_cast<SystemContext*>(p_param);
+	auto mutex = sysCon->webInterface->getSensorsMutex();
 
 	while (true) {
 		xSemaphoreTakeRecursive(mutex, portMAX_DELAY);
 
-		auto trackedSensorsMap = web->getTrackedSensors();
+		auto trackedSensorsMap = sysCon->webInterface->getTrackedSensors();
 		for (auto& fdPair : trackedSensorsMap) {
 			auto& trackedSensorsVector = fdPair.second;
 
 			for (auto& sensor : trackedSensorsVector) {
-				web->getKLine()->readPid(sensor);
+				sysCon->kline->readPid(sensor);
 			}
 
 			// JSON Header
@@ -238,7 +239,7 @@ static void updateSensorsTask(void* param)
 			output << "]";
 			output << "}";
 
-			web->send(fdPair.first, output.str());
+			sysCon->webInterface->send(fdPair.first, output.str());
 		}
 
 		xSemaphoreGiveRecursive(mutex);
@@ -250,8 +251,9 @@ static void updateSensorsTask(void* param)
 /*
  *	Public Function Implementations
  */
-WebInterface::WebInterface()
+WebInterface::WebInterface(SystemContext* p_sysCon)
 {
+	sysCon_ = p_sysCon;
 	sensorsMutex_ = xSemaphoreCreateMutex();
 
 	httpdConfig_ = HTTPD_DEFAULT_CONFIG();
@@ -304,16 +306,13 @@ WebInterface::WebInterface()
 		return;
 	}
 
-	if (httpd_register_uri_handler(httpdHandle_, &FILE_URI) != ESP_OK) {
+	const httpd_uri_t fileUri = {
+		.uri = "/*", .method = HTTP_GET, .handler = fileHandler, .user_ctx = sysCon_
+	};
+	if (httpd_register_uri_handler(httpdHandle_, &fileUri) != ESP_OK) {
 		ESP_LOGE(TAG, "Failed to register File URI");
 		return;
 	}
-
-	/*
-	 *	Read ECU ID
-	 */
-	kline_ = Core::get()->getKLine();
-	kline_->readEcuId();
 
 	ESP_LOGI(TAG, "Initialized");
 	initialized_ = true;
@@ -345,11 +344,6 @@ std::unordered_map<int, std::vector<uint16_t>>& WebInterface::getTrackedSensors(
 SemaphoreHandle_t& WebInterface::getSensorsMutex()
 {
 	return sensorsMutex_;
-}
-
-KLine* WebInterface::getKLine()
-{
-	return kline_;
 }
 
 /*
@@ -394,7 +388,7 @@ esp_err_t WebInterface::websocketHandler(httpd_req_t* p_reqst)
 			return ESP_OK;
 		}
 
-		if (xTaskCreate(updateSensorsTask, "WebInterfaceUpdateSensorsTask", 4096, this, 2,
+		if (xTaskCreate(updateSensorsTask, "WebInterfaceUpdateSensorsTask", 4096, sysCon_, 2,
 		                &updateSensorsDataTask_) != pdPASS) {
 			updateSensorsDataTask_ = nullptr;
 			ESP_LOGW(TAG, "Failed to start task which updates the sensor values");
@@ -431,7 +425,7 @@ esp_err_t WebInterface::websocketHandler(httpd_req_t* p_reqst)
 	}
 
 	if (dataStr.contains("prepare-display-update")) {
-		auto filesystem = Filesystem::get();
+		auto filesystem = static_cast<WebInterface*>(p_reqst->user_ctx)->sysCon_->filesystem;
 
 		// Create file if necessary
 		if (!filesystem->doesFileExist("display_update.bin", Filesystem::Location::SD_CARD)) {
@@ -500,9 +494,7 @@ esp_err_t WebInterface::displayUpdateUploadHandler(httpd_req_t* p_reqst)
 	/*
 	 *	Notify backend that the update is ready
 	 */
-	Event event;
-	event.type = Event::DISPLAY_UPDATE_DOWNLOADED;
-	xQueueSend(Core::get()->getMainEventQueue(), &event, portMAX_DELAY);
+	esp_event_post(SYSTEM_EVENT_BASE, DISPLAY_UPDATE_DOWNLOADED, nullptr, 0, portMAX_DELAY);
 
 	return ESP_OK;
 }
@@ -512,7 +504,7 @@ esp_err_t WebInterface::displayUpdateDownloadHandler(httpd_req_t* p_reqst)
 	/*
 	 *	Open the file
 	 */
-	const auto filesystem = Filesystem::get();
+	const auto filesystem = sysCon_->filesystem;
 	if (!filesystem->doesFileExist("display_update.bin", Filesystem::SD_CARD)) {
 		ESP_LOGE(TAG, "Display update file does not exist!");
 		return ESP_FAIL;
