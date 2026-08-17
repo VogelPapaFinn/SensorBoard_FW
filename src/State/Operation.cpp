@@ -35,15 +35,6 @@ constexpr auto SENSOR_DATA_SAVE_INTERVAL = 60;
 constexpr auto BROADCAST_SENSOR_DATA_HZ = 100;
 
 /*
- *	Private struct
- */
-struct SensorContext
-{
-	SystemContext* sysCon = nullptr;
-	std::vector<Sensor*>* sensors = nullptr;
-};
-
-/*
  *	Private Static Functions
  */
 static void staticBroadcastSensorData(void* p_sensorContext, esp_event_base_t, int32_t, void*)
@@ -87,13 +78,13 @@ static void staticBroadcastSensorData(void* p_sensorContext, esp_event_base_t, i
 	frame.data[4] = sensors->at(3)->get() & 0xFF;
 
 	// Speed
-	frame.data[5] = sensors->at(1)->get();
+	frame.data[5] = sensors->at(4)->get();
 
 	// Left Indicator
-	frame.data[6] = sensors->at(2)->get();
+	frame.data[6] = sensors->at(5)->get();
 
 	// Right Indicator
-	frame.data[7] = sensors->at(3)->get();
+	frame.data[7] = sensors->at(6)->get();
 
 	/*
 	 *	Send the frame
@@ -208,9 +199,20 @@ void Operation::enter()
 	sensors_.push_back(new RightIndicator());
 
 	/*
+	 *	Setup the sensor context
+	 */
+	senCon_.sysCon = sysCon_;
+	senCon_.sensors = &sensors_;
+
+	/*
 	 *	Setup the periodic reading of each passive sensor
 	 */
 	setupPassiveSensorReadings();
+
+	/*
+	 *	Setup sensor data broadcasting
+	 */
+	setupSensorBroadcasting();
 
 	/*
 	 *	Setup the .csv logging of the sensor data
@@ -223,22 +225,22 @@ void Operation::enter()
 	setupWifi();
 }
 
-void Operation::handleCanFrame(const Can::Frame* frame) const
+void Operation::handleCanFrame(const Can::Frame* p_frame) const
 {
-	if (frame->group != CanFrameGroups::GROUP::WIFI) {
+	if (p_frame->group != CanFrameGroups::GROUP::WIFI) {
 		return;
 	}
 
 	/*
 	 * Act depending on the function
 	 */
-	switch (frame->function) {
+	switch (p_frame->function) {
 		/*
 		 *	Display connected to the Wifi
 		 */
 		case CanFrameGroups::WIFI::JOIN_WIFI:
 			{
-				if (!frame->answer) {
+				if (!p_frame->answer) {
 					return;
 				}
 
@@ -252,12 +254,12 @@ void Operation::handleCanFrame(const Can::Frame* frame) const
 		 */
 		case CanFrameGroups::WIFI::EXECUTE_UPDATE:
 			{
-				if (!frame->answer) {
+				if (!p_frame->answer) {
 					return;
 				}
 
 				static uint8_t s_counter = 0;
-				ESP_LOGI(TAG, "Display %d executed update successfully!", frame->sender);
+				ESP_LOGI(TAG, "Display %d executed update successfully!", p_frame->sender);
 
 				/*
 				 * Restart all displays & ourselves when they are ready
@@ -361,7 +363,7 @@ void Operation::setupPassiveSensorReadings()
 	// Fuel Level
 	PassiveSensor* sensor = static_cast<PassiveSensor*>(sensors_.at(0));
 	passiveSensorTimers_[sensor] =
-		xTimerCreate("Periodic Fuel Level read timer", FUEL_LEVEL_READ_INTERVAL_MS, pdTRUE, &sensors_,
+		xTimerCreate("Periodic Fuel Level read timer", pdMS_TO_TICKS(FUEL_LEVEL_READ_INTERVAL_MS), pdTRUE, &sensors_,
 					 [](const TimerHandle_t p_timerHandle)
 					 {
 						 /*
@@ -383,7 +385,7 @@ void Operation::setupPassiveSensorReadings()
 	// Oil Pressure
 	sensor = static_cast<PassiveSensor*>(sensors_.at(1));
 	passiveSensorTimers_[sensor] =
-		xTimerCreate("Periodic Oil Pressure read timer", OIL_PRESSURE_READ_INTERVAL_MS, pdTRUE, &sensors_,
+		xTimerCreate("Periodic Oil Pressure read timer", pdMS_TO_TICKS(OIL_PRESSURE_READ_INTERVAL_MS), pdTRUE, &sensors_,
 					 [](const TimerHandle_t p_timerHandle)
 					 {
 						 /*
@@ -405,9 +407,11 @@ void Operation::setupPassiveSensorReadings()
 	// Water Temperature
 	sensor = static_cast<PassiveSensor*>(sensors_.at(2));
 	passiveSensorTimers_[sensor] =
-		xTimerCreate("Periodic Water Temperature read timer", WATER_TEMP_READ_INTERVAL_MS, pdTRUE, &sensors_,
+		xTimerCreate("Periodic Water Temperature read timer", pdMS_TO_TICKS(WATER_TEMP_READ_INTERVAL_MS), pdTRUE, &sensors_,
 					 [](const TimerHandle_t p_timerHandle)
 					 {
+						 esp_rom_printf("Periodic Water Temperature read timer\n");
+
 						 /*
 						  *	Get the sensors vector
 						  */
@@ -421,47 +425,53 @@ void Operation::setupPassiveSensorReadings()
 						 /*
 						  *	Read the sensor
 						  */
+						 esp_rom_printf("sensor->read()\n");
 						 sensor->read();
 					 });
+
+	/*
+	 *	Initial reading of all passive sensors
+	 */
+	static_cast<PassiveSensor*>(sensors_.at(0))->read();
+	static_cast<PassiveSensor*>(sensors_.at(1))->read();
+	static_cast<PassiveSensor*>(sensors_.at(2))->read();
 }
 
 void Operation::setupSensorBroadcasting()
 {
-	SensorContext senCon{.sysCon = sysCon_, .sensors = &sensors_};
-
 	/*
 	 *	Fuel Level Changed
 	 */
 	eventHandlers_.push_back(std::make_tuple(SYSTEM_EVENT_BASE, FUEL_LEVEL_CHANGED, esp_event_handler_instance_t()));
-	esp_event_handler_instance_register(SYSTEM_EVENT_BASE, FUEL_LEVEL_CHANGED, staticBroadcastSensorData, &senCon,
+	esp_event_handler_instance_register(SYSTEM_EVENT_BASE, FUEL_LEVEL_CHANGED, staticBroadcastSensorData, &senCon_,
 										&get<2>(eventHandlers_.back()));
 
 	/*
 	 *	Oil Pressure Changed
 	 */
 	eventHandlers_.push_back(std::make_tuple(SYSTEM_EVENT_BASE, OIL_PRESSURE_CHANGED, esp_event_handler_instance_t()));
-	esp_event_handler_instance_register(SYSTEM_EVENT_BASE, OIL_PRESSURE_CHANGED, staticBroadcastSensorData, &senCon,
+	esp_event_handler_instance_register(SYSTEM_EVENT_BASE, OIL_PRESSURE_CHANGED, staticBroadcastSensorData, &senCon_,
 										&get<2>(eventHandlers_.back()));
 
 	/*
 	 *	Water Temperature Changed
 	 */
 	eventHandlers_.push_back(std::make_tuple(SYSTEM_EVENT_BASE, WATER_TEMP_CHANGED, esp_event_handler_instance_t()));
-	esp_event_handler_instance_register(SYSTEM_EVENT_BASE, WATER_TEMP_CHANGED, staticBroadcastSensorData, &senCon,
+	esp_event_handler_instance_register(SYSTEM_EVENT_BASE, WATER_TEMP_CHANGED, staticBroadcastSensorData, &senCon_,
 										&get<2>(eventHandlers_.back()));
 
 	/*
 	 *	RPM Changed
 	 */
 	eventHandlers_.push_back(std::make_tuple(SYSTEM_EVENT_BASE, RPM_CHANGED, esp_event_handler_instance_t()));
-	esp_event_handler_instance_register(SYSTEM_EVENT_BASE, RPM_CHANGED, staticBroadcastSensorData, &senCon,
+	esp_event_handler_instance_register(SYSTEM_EVENT_BASE, RPM_CHANGED, staticBroadcastSensorData, &senCon_,
 										&get<2>(eventHandlers_.back()));
 
 	/*
 	 *	Speed Changed
 	 */
 	eventHandlers_.push_back(std::make_tuple(SYSTEM_EVENT_BASE, SPEED_CHANGED, esp_event_handler_instance_t()));
-	esp_event_handler_instance_register(SYSTEM_EVENT_BASE, SPEED_CHANGED, staticBroadcastSensorData, &senCon,
+	esp_event_handler_instance_register(SYSTEM_EVENT_BASE, SPEED_CHANGED, staticBroadcastSensorData, &senCon_,
 										&get<2>(eventHandlers_.back()));
 
 	/*
@@ -470,7 +480,7 @@ void Operation::setupSensorBroadcasting()
 	eventHandlers_.push_back(
 		std::make_tuple(SYSTEM_EVENT_BASE, LEFT_INDICATOR_ACTIVE_CHANGED, esp_event_handler_instance_t()));
 	esp_event_handler_instance_register(SYSTEM_EVENT_BASE, LEFT_INDICATOR_ACTIVE_CHANGED, staticBroadcastSensorData,
-										&senCon, &get<2>(eventHandlers_.back()));
+										&senCon_, &get<2>(eventHandlers_.back()));
 
 	/*
 	 *	Right Indicator Changed
@@ -478,7 +488,7 @@ void Operation::setupSensorBroadcasting()
 	eventHandlers_.push_back(
 		std::make_tuple(SYSTEM_EVENT_BASE, RIGHT_INDICATOR_ACTIVE_CHANGED, esp_event_handler_instance_t()));
 	esp_event_handler_instance_register(SYSTEM_EVENT_BASE, RIGHT_INDICATOR_ACTIVE_CHANGED, staticBroadcastSensorData,
-										&senCon, &get<2>(eventHandlers_.back()));
+										&senCon_, &get<2>(eventHandlers_.back()));
 }
 
 void Operation::setupSensorDataLogging()
@@ -486,7 +496,7 @@ void Operation::setupSensorDataLogging()
 	/*
 	 *	Setup data logging
 	 */
-	sensorDataLoggingTimer_ = xTimerCreate("Sensor data logging timer", SENSOR_DATA_LOGGING_INTERVAL_MS, pdTRUE, this,
+	sensorDataLoggingTimer_ = xTimerCreate("Sensor data logging timer", pdMS_TO_TICKS(SENSOR_DATA_LOGGING_INTERVAL_MS), pdTRUE, this,
 										   [](const TimerHandle_t p_timerHandle)
 										   {
 											   /*

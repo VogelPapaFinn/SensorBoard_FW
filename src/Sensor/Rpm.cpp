@@ -23,6 +23,7 @@ constexpr uint16_t MAX_RPM = 8000;
  */
 Rpm::Rpm() : ActiveSensor(GPIO_NUM_9, GPIO_INTR_NEGEDGE) {}
 
+// Berechnungen auslagern in task oder so!
 int Rpm::get()
 {
 	// Detect engine shutoff
@@ -79,11 +80,16 @@ void Rpm::cb()
 		fallingEdgeTime_ = now;
 		portEXIT_CRITICAL_ISR(&mux_);
 	}
+
+	/*
+	 *	Notify about the new value
+	 */
+	notifyAboutNewValue();
 }
 
 void Rpm::notifyAboutNewValue()
 {
-	const auto& value = get();
+	const auto value = get();
 
-	esp_event_post(SYSTEM_EVENT_BASE, RPM_CHANGED, &value, sizeof(value), portMAX_DELAY);
+	esp_event_isr_post(SYSTEM_EVENT_BASE, RPM_CHANGED, &value, sizeof(value), nullptr);
 }

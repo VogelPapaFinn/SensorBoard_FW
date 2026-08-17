@@ -28,8 +28,6 @@ RegistrationHandler::RegistrationHandler(SystemContext* p_sysCon)
 		SYSTEM_EVENT_BASE, CAN_FRAME_RECEIVED,
 		[](void* p_handler, esp_event_base_t, int32_t, void* p_payload)
 		{
-			esp_rom_printf("Received event\n");
-
 			/*
 			 *	Get the instance
 			 */

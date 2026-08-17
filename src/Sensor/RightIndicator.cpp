@@ -24,9 +24,13 @@ RightIndicator::RightIndicator() : ActiveSensor(GPIO_NUM_7, GPIO_INTR_ANYEDGE)
 
 int RightIndicator::get() { return active_; }
 
-void RightIndicator::cb() { active_ = gpio_get_level(gpio_) == 0; }
+void RightIndicator::cb()
+{
+	active_ = gpio_get_level(gpio_) == 0;
+	notifyAboutNewValue();
+}
 
 void RightIndicator::notifyAboutNewValue()
 {
-	esp_event_post(SYSTEM_EVENT_BASE, RIGHT_INDICATOR_ACTIVE_CHANGED, &active_, sizeof(active_), portMAX_DELAY);
+	esp_event_isr_post(SYSTEM_EVENT_BASE, RIGHT_INDICATOR_ACTIVE_CHANGED, &active_, sizeof(active_), nullptr);
 }

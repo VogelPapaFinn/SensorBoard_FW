@@ -10,6 +10,18 @@
 #include "State/State.hpp"
 #include "WebInterface/WebInterface.hpp"
 
+/*
+ *	Public struct
+ */
+struct SensorContext
+{
+	SystemContext* sysCon = nullptr;
+	std::vector<Sensor*>* sensors = nullptr;
+};
+
+/*
+ *	Class implementation
+ */
 class Operation : public State
 {
 public:
@@ -27,7 +39,7 @@ private:
 	 */
 	void registerToEvents();
 
-	void handleCanFrame(const Can::Frame* frame) const;
+	void handleCanFrame(const Can::Frame* p_frame) const;
 
 	void setupPassiveSensorReadings();
 
@@ -45,6 +57,7 @@ private:
 	 *	Private Variables
 	 */
 	SystemContext* sysCon_ = nullptr;
+	SensorContext senCon_;
 
 	std::vector<Sensor*> sensors_;
 	std::unordered_map<PassiveSensor*, TimerHandle_t> passiveSensorTimers_;

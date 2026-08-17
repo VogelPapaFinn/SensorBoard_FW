@@ -24,9 +24,13 @@ LeftIndicator::LeftIndicator() : ActiveSensor(GPIO_NUM_15, GPIO_INTR_ANYEDGE)
 
 int LeftIndicator::get() { return active_; }
 
-void LeftIndicator::cb() { active_ = gpio_get_level(gpio_) == 0; }
+void LeftIndicator::cb()
+{
+	active_ = gpio_get_level(gpio_) == 0;
+	notifyAboutNewValue();
+}
 
 void LeftIndicator::notifyAboutNewValue()
 {
-	esp_event_post(SYSTEM_EVENT_BASE, LEFT_INDICATOR_ACTIVE_CHANGED, &active_, sizeof(active_), portMAX_DELAY);
+	esp_event_isr_post(SYSTEM_EVENT_BASE, LEFT_INDICATOR_ACTIVE_CHANGED, &active_, sizeof(active_), nullptr);
 }

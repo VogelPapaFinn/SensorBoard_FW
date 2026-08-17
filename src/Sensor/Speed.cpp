@@ -70,11 +70,16 @@ void Speed::cb()
 	}
 
 	portEXIT_CRITICAL_ISR(&mux_);
+
+	/*
+	 *	Notify about new value
+	 */
+	notifyAboutNewValue();
 }
 
 void Speed::notifyAboutNewValue()
 {
-	const auto& value = get();
+	const auto value = get();
 
-	esp_event_post(SYSTEM_EVENT_BASE, SPEED_CHANGED, &value, sizeof(value), portMAX_DELAY);
+	esp_event_isr_post(SYSTEM_EVENT_BASE, SPEED_CHANGED, &value, sizeof(value), nullptr);
 }
