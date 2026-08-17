@@ -144,6 +144,7 @@ extern "C" void app_main(void)
 
 	// KLine
 	KLine kline;
+	kline.readEcuId();
 
 	// Displays
 	Display display1(&sysCon, GPIO_DISPLAY2, CAN_MASTER_ID + 2, 0, true);
