@@ -72,8 +72,7 @@ void RegistrationHandler::handleRegistration(const Can::Frame* p_frame) const
 	for (const auto& d : sysCon_->displays) {
 		displayCrashed &= d->hasBeenConfigured();
 
-
-		if (d->getCanId() != p_frame->sender) {
+		if (d->getCanId() != p_frame->sender && p_frame->sender != 0 && d->hasBeenConfigured()) {
 			continue;
 		}
 
@@ -88,6 +87,15 @@ void RegistrationHandler::handleRegistration(const Can::Frame* p_frame) const
 	 *	Reset the display instance
 	 */
 	display->reset();
+
+	/*
+	 *	Set the ID if necessary
+	 */
+	if (p_frame->sender == 0)
+	{
+		ESP_LOGI(TAG, "ID was 0, setting new ID: %d", display->getCanId());
+		display->applyId();
+	}
 
 	/*
 	 *	Set the screen and rotation

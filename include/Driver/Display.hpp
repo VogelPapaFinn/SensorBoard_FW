@@ -37,6 +37,8 @@ public:
 	 */
 	uint8_t getCanId() const;
 
+	void applyId() const;
+
 	void applyScreen() const;
 
 	/**

@@ -48,6 +48,20 @@ uint8_t Display::getCanId() const
 	return canId_;
 }
 
+void Display::applyId() const
+{
+	Can::Frame frame;
+	frame.sender = CAN_MASTER_ID;
+	frame.target = canId_;
+	frame.group = CanFrameGroups::GROUP::CONFIGURATION;
+	frame.function = CanFrameGroups::CONFIGURATION::SET_ID;
+	frame.dataLengthCode = 1;
+	frame.data[0] = canId_;
+	frame.answer = false;
+
+	sysCon_->can->queueFrame(frame);
+}
+
 void Display::applyScreen() const
 {
 	Can::Frame txFrame;
