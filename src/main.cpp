@@ -146,8 +146,8 @@ extern "C" void app_main(void)
 	KLine kline;
 
 	// Displays
-	Display display1(&sysCon, GPIO_DISPLAY2, CAN_MASTER_ID + 1, 0, true);
-	Display display2(&sysCon, GPIO_DISPLAY1, CAN_MASTER_ID + 2, 1, false);
+	Display display1(&sysCon, GPIO_DISPLAY2, CAN_MASTER_ID + 2, 0, true);
+	Display display2(&sysCon, GPIO_DISPLAY1, CAN_MASTER_ID + 1, 1, false);
 	Display display3(&sysCon, GPIO_DISPLAY3, CAN_MASTER_ID + 3, 2, false);
 
 	// Registration Handler

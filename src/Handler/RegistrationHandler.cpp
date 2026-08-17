@@ -2,12 +2,21 @@
 
 // Project includes
 #include "Events.hpp"
-
-// espidf includes
 #include "CanGroupsAndFunctions.hpp"
 #include "Driver/Display.hpp"
-#include "esp_event.h"
 
+// espidf includes
+#include "esp_event.h"
+#include "esp_log.h"
+
+/*
+ *	constexpr
+ */
+constexpr auto TAG = "RegistrationHandler";
+
+/*
+ *	Public function implementations
+ */
 RegistrationHandler::RegistrationHandler(SystemContext* p_sysCon)
 {
 	sysCon_ = p_sysCon;
@@ -19,6 +28,8 @@ RegistrationHandler::RegistrationHandler(SystemContext* p_sysCon)
 		SYSTEM_EVENT_BASE, CAN_FRAME_RECEIVED,
 		[](void* p_handler, esp_event_base_t, int32_t, void* p_payload)
 		{
+			esp_rom_printf("Received event\n");
+
 			/*
 			 *	Get the instance
 			 */
@@ -61,7 +72,8 @@ void RegistrationHandler::handleRegistration(const Can::Frame* p_frame) const
 	bool displayCrashed = true;
 	Display* display = nullptr;
 	for (const auto& d : sysCon_->displays) {
-		displayCrashed &= display->hasBeenConfigured();
+		displayCrashed &= d->hasBeenConfigured();
+
 
 		if (d->getCanId() != p_frame->sender) {
 			continue;
