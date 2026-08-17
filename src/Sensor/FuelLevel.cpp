@@ -5,10 +5,11 @@
 
 // C++ includes
 #include <algorithm>
+#include <cmath>
 
 // espidf includes
-#include "esp_event.h"
 #include <esp_log.h>
+#include "esp_event.h"
 
 /*
  *	Private typedefs
@@ -25,18 +26,13 @@ typedef struct
 constexpr auto TAG = "FuelLevel";
 constexpr uint16_t R1 = 240;
 constexpr float NEW_VALUES_DAMPENER = 0.01f;
-constexpr LevelResistanceTuple_t LEVEL_RESISTANCE_TUPLES[] = {
-	{100, 3},   {75, 15.8},   {50, 32.5},  {25, 64.2},  {0, 110}
-};
+constexpr LevelResistanceTuple_t LEVEL_RESISTANCE_TUPLES[] = {{100, 3}, {75, 15.8}, {50, 32.5}, {25, 64.2}, {0, 110}};
 constexpr uint8_t AMOUNT_LEVEL_TUPLES = std::size(LEVEL_RESISTANCE_TUPLES);
 
 /*
  *	Public Function Implementations
  */
-FuelLevel::FuelLevel(adc_oneshot_unit_handle_t* p_adc) :
-	PassiveSensor(GPIO_NUM_1, ADC_CHANNEL_0, p_adc)
-{
-}
+FuelLevel::FuelLevel(adc_oneshot_unit_handle_t* p_adc) : PassiveSensor(GPIO_NUM_1, ADC_CHANNEL_0, p_adc) {}
 
 int FuelLevel::get()
 {
@@ -62,8 +58,7 @@ int FuelLevel::get()
 
 	// Calculate the dampened value
 	smoothedValue_ = (NEW_VALUES_DAMPENER * median) + ((1.0f - NEW_VALUES_DAMPENER) * smoothedValue_);
-	if (smoothedValue_> 100.0f)
-	{
+	if (smoothedValue_ > 100.0f) {
 		smoothedValue_ = 100.0f;
 	}
 
@@ -73,46 +68,25 @@ int FuelLevel::get()
 /*
  *	Private Function Implementations
  */
-void FuelLevel::specificRead()
-{
-	resistance_ = calcVoltageDividerR2(voltage_, R1);
-}
+void FuelLevel::specificRead() { resistance_ = calcVoltageDividerR2(voltage_, R1); }
 
 void FuelLevel::calcLevel()
 {
-	int levelInPercent = 0;
+	int levelInPercent = std::round((-0.000102885 * resistance_ * resistance_ * resistance_) +
+									(0.0246611 * resistance_ * resistance_) + (-2.44333 * resistance_) + 107.321);
 
-	// R too low
-	if (resistance_ < LEVEL_RESISTANCE_TUPLES[0].r) {
-		levelInPercent = 100;
+	// Too low
+	if (levelInPercent < 0.0) {
+		levelInPercent = 0.0;
 	}
 
-	// R too high
-	if (resistance_ > LEVEL_RESISTANCE_TUPLES[AMOUNT_LEVEL_TUPLES - 1].r) {
-		levelInPercent = 0;
-	}
-
-	// Iterate through all entries
-	for (int i = 0; i < AMOUNT_LEVEL_TUPLES - 1; i++) {
-		const uint16_t r1 = LEVEL_RESISTANCE_TUPLES[i].r;
-		const uint16_t r2 = LEVEL_RESISTANCE_TUPLES[i + 1].r;
-
-		// Check if the resistance is between this and the next entry
-		if (resistance_ >= r1 && resistance_ <= r2) {
-			const uint8_t level1 = LEVEL_RESISTANCE_TUPLES[i].level;
-			const uint8_t level2 = LEVEL_RESISTANCE_TUPLES[i + 1].level;
-
-			// Calculate the value with linear interpolation
-			// y = y1 + (x - x1) * (y2 - y1) / (x2 - x1)
-			levelInPercent = level1 + ((resistance_ - r1) * ((level2 - level1)) / (r2 - r1));
-
-			break;
-		}
+	// Too high
+	if (levelInPercent > 100.0) {
+		levelInPercent = 100.0;
 	}
 
 	// Track the
-	if (lastLevels_.size() >= 21)
-	{
+	if (lastLevels_.size() >= 21) {
 		lastLevels_.erase(lastLevels_.begin());
 	}
 	lastLevels_.push_back(levelInPercent);
