@@ -79,7 +79,5 @@ void Speed::cb()
 
 void Speed::notifyAboutNewValue()
 {
-	const auto value = get();
-
-	esp_event_isr_post(SYSTEM_EVENT_BASE, SPEED_CHANGED, &value, sizeof(value), nullptr);
+	esp_event_isr_post(SYSTEM_EVENT_BASE, SPEED_CHANGED, nullptr, 0, nullptr);
 }
