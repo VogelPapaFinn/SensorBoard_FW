@@ -28,46 +28,26 @@ public:
 
 	void reset();
 
-	bool hasBeenConfigured() const;
+	void turnOn() const;
 
-	/**
-	 * \brief Gets the CAN ID of the display.
-	 *
-	 * \return The CAN ID of the display.
-	 */
-	uint8_t getCanId() const;
+	void turnOff() const;
 
-	void applyId() const;
+	void setConfigured(bool configured);
 
-	void applyScreen() const;
-
-	/**
-	 * \brief Gets the screen number on which the display is connected.
-	 *
-	 * \return The screen number on which the display is connected.
-	 */
-	uint8_t getScreen() const;
-
-	void applyRotation() const;
-
-	/**
-	 * \brief Checks if the display is rotated by 180 degrees.
-	 *
-	 * \return True if the display is rotated, false otherwise.
-	 */
-	bool isRotated() const;
+	void bakeConfiguration() const;
 
 	void confirmConfiguration();
 
-	/**
-	 * \brief Turns on the display.
+	/*
+	 *	Public getter-Functions
 	 */
-	void turnOn() const;
+	bool hasBeenConfigured() const;
 
-	/**
-	 * \brief Turns off the display.
-	 */
-	void turnOff() const;
+	uint8_t getCanId() const;
+
+	uint8_t getScreen() const;
+
+	bool isRotated() const;
 
 private:
 	SystemContext* sysCon_ = nullptr;

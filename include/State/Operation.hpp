@@ -4,8 +4,8 @@
 #include "fstream"
 
 // Project includes
+#include "Can.hpp"
 #include "Driver/KLine.hpp"
-#include "Sensor/ActiveSensor.hpp"
 #include "Sensor/PassiveSensor.hpp"
 #include "State/State.hpp"
 #include "WebInterface/WebInterface.hpp"
@@ -56,7 +56,6 @@ private:
 	/*
 	 *	Private Variables
 	 */
-	SystemContext* sysCon_ = nullptr;
 	SensorContext senCon_;
 
 	std::vector<Sensor*> sensors_;

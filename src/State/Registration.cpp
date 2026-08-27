@@ -1,6 +1,7 @@
 #include "State/Registration.hpp"
 
 // Project includes
+#include "Can.hpp"
 #include "CanGroupsAndFunctions.hpp"
 #include "Driver/Display.hpp"
 #include "Events.hpp"
@@ -80,7 +81,7 @@ void Registration::nextDisplay()
 	/*
 	 *	Complete registration if possible
 	 */
-	if (++currDisplay >= 3) {
+	if (++currDisplay >= 1) {
 		wakeUpAllDisplays();
 
 		esp_event_post(SYSTEM_EVENT_BASE, REGISTRATION_COMPLETED, nullptr, 0, portMAX_DELAY);
@@ -96,13 +97,13 @@ void Registration::nextDisplay()
 
 void Registration::wakeUpAllDisplays() const
 {
-	Can::Frame txFrame;
-	txFrame.sender = CAN_MASTER_ID;
-	txFrame.target = CAN_BROADCAST_ID;
-	txFrame.group = CanFrameGroups::GROUP::CONFIGURATION;
-	txFrame.function = CanFrameGroups::CONFIGURATION::WAKE_UP;
-	txFrame.dataLengthCode = 0;
-	txFrame.answer = false;
+	Can::Frame frame;
+	frame.sender = CAN_MASTER_ID;
+	frame.target = CAN_BROADCAST_ID;
+	frame.group = CanFrameGroups::GROUP::CONFIGURATION;
+	frame.function = CanFrameGroups::CONFIGURATION::WAKE_UP;
+	frame.dataLengthCode = 0;
+	frame.answer = false;
 
-	sysCon_->can->queueFrame(txFrame);
+	sysCon_->can->queueFrame(frame);
 }

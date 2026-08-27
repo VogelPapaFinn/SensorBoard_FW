@@ -18,6 +18,7 @@ constexpr uint8_t MIN_MESSAGE_LENGTH_B = 5;
 
 constexpr uint8_t SID_RDBI = 0x22; // Read Data By Identifier
 constexpr uint8_t SID_READ_FLASH = 0x23; // Unknown SID, but used for reading the ECU ID
+constexpr uint8_t SID_RESPONSE = 0x40;
 
 /*
  *	Class
@@ -30,7 +31,7 @@ public:
 	 */
 	struct KLineMessage
 	{
-		std::vector<uint8_t> rawMessage;
+		std::vector<uint8_t> rawMessage = {};
 
 		uint8_t length = 0;
 
@@ -42,9 +43,9 @@ public:
 
 		uint8_t sid = 0;
 
-		std::vector<uint8_t> pid;
+		std::vector<uint8_t> pid = {};
 
-		std::vector<uint8_t> data;
+		std::vector<uint8_t> data = {};
 
 		uint8_t checksum = 0;
 
@@ -52,8 +53,7 @@ public:
 		{
 			uint32_t tmp = 0;
 
-			tmp += length;
-			tmp += command;
+			tmp += (length << 4) + (command & 0x0F);
 			tmp += sender;
 			tmp += receiver;
 			tmp += sid;
@@ -85,13 +85,12 @@ public:
 			receiver = rawMessage[i++];
 			sid = rawMessage[i++];
 
-			// Get the PID depending on the SID
-			if (sid == SID_RDBI) {
+			// Get the PID
+			if (sid == SID_READ_FLASH) {
 				pid.push_back(rawMessage[i++]);
 				pid.push_back(rawMessage[i++]);
-			}
-			else if (sid == SID_READ_FLASH) {
 				pid.push_back(rawMessage[i++]);
+			} else {
 				pid.push_back(rawMessage[i++]);
 				pid.push_back(rawMessage[i++]);
 			}
@@ -126,6 +125,7 @@ public:
 			}
 
 			// Set the checksum
+			calculateChecksum();
 			rawMessage.push_back(checksum);
 		}
 

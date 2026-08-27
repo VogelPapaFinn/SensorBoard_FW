@@ -38,7 +38,7 @@ constexpr uint8_t AMOUNT_TEMP_TUPLES = std::size(TEMP_RESISTANCE_TUPLES);
 /*
  *	Public Function Implementations
  */
-WaterTemperature::WaterTemperature(adc_oneshot_unit_handle_t* adc) : PassiveSensor(GPIO_NUM_6, ADC_CHANNEL_5, adc)
+WaterTemperature::WaterTemperature(adc_oneshot_unit_handle_t p_adc) : PassiveSensor(GPIO_NUM_6, ADC_CHANNEL_5, p_adc)
 {
 }
 

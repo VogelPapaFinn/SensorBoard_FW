@@ -6,7 +6,7 @@
 class WaterTemperature : public PassiveSensor
 {
 public:
-	WaterTemperature(adc_oneshot_unit_handle_t* adc);
+	WaterTemperature(adc_oneshot_unit_handle_t p_adc);
 
 	int get();
 

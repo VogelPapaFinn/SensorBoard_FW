@@ -9,7 +9,7 @@
 class FuelLevel : public PassiveSensor
 {
 public:
-	FuelLevel(adc_oneshot_unit_handle_t* p_adc);
+	FuelLevel(adc_oneshot_unit_handle_t p_adc);
 
 	int get() override;
 

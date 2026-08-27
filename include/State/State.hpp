@@ -1,8 +1,8 @@
 #pragma once
 
 // Project includes
-#include "Can.hpp"
 #include "Events.hpp"
+#include "SystemContext.hpp"
 
 // espidf includes
 #include "esp_event_base.h"
@@ -35,6 +35,8 @@ protected:
 	 *	Private Variables
 	 */
 	TYPE type_ = UNKNOWN;
+
+	SystemContext* sysCon_ = nullptr;
 
 	std::vector<std::tuple<esp_event_base_t, SYSTEM_EVENT_ID, esp_event_handler_instance_t>> eventHandlers_;
 };

@@ -6,7 +6,7 @@
 class OilPressure : public PassiveSensor
 {
 public:
-	OilPressure(adc_oneshot_unit_handle_t* p_adc);
+	OilPressure(adc_oneshot_unit_handle_t p_adc);
 
 	int get() override;
 

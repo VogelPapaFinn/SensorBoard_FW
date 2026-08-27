@@ -185,10 +185,10 @@ void Operation::enter()
 	/*
 	 *	Setup passive sensors
 	 */
-	auto adc1 = sysCon_->adc1;
-	sensors_.push_back(new FuelLevel(&adc1));
-	sensors_.push_back(new OilPressure(&adc1));
-	sensors_.push_back(new WaterTemperature(&adc1));
+	const auto adc1 = sysCon_->adc1;
+	sensors_.push_back(new FuelLevel(adc1));
+	sensors_.push_back(new OilPressure(adc1));
+	sensors_.push_back(new WaterTemperature(adc1));
 
 	/*
 	 *	Setup active sensors
@@ -381,53 +381,53 @@ void Operation::setupPassiveSensorReadings()
 						  */
 						 sensor->read();
 					 });
+	xTimerStart(passiveSensorTimers_[sensor], 0);
 
 	// Oil Pressure
 	sensor = static_cast<PassiveSensor*>(sensors_.at(1));
-	passiveSensorTimers_[sensor] =
-		xTimerCreate("Periodic Oil Pressure read timer", pdMS_TO_TICKS(OIL_PRESSURE_READ_INTERVAL_MS), pdTRUE, &sensors_,
-					 [](const TimerHandle_t p_timerHandle)
-					 {
-						 /*
-						  *	Get the sensors vector
-						  */
-						 const auto sensors = static_cast<std::vector<Sensor*>*>(pvTimerGetTimerID(p_timerHandle));
+	passiveSensorTimers_[sensor] = xTimerCreate(
+		"Periodic Oil Pressure read timer", pdMS_TO_TICKS(OIL_PRESSURE_READ_INTERVAL_MS), pdTRUE, &sensors_,
+		[](const TimerHandle_t p_timerHandle)
+		{
+			/*
+			 *	Get the sensors vector
+			 */
+			const auto sensors = static_cast<std::vector<Sensor*>*>(pvTimerGetTimerID(p_timerHandle));
 
-						 /*
-						  *	Cast the sensor
-						  */
-						 const auto sensor = static_cast<PassiveSensor*>(sensors->at(1));
+			/*
+			 *	Cast the sensor
+			 */
+			const auto sensor = static_cast<PassiveSensor*>(sensors->at(1));
 
-						 /*
-						  *	Read the sensor
-						  */
-						 sensor->read();
-					 });
+			/*
+			 *	Read the sensor
+			 */
+			sensor->read();
+		});
+	xTimerStart(passiveSensorTimers_[sensor], 0);
 
 	// Water Temperature
 	sensor = static_cast<PassiveSensor*>(sensors_.at(2));
-	passiveSensorTimers_[sensor] =
-		xTimerCreate("Periodic Water Temperature read timer", pdMS_TO_TICKS(WATER_TEMP_READ_INTERVAL_MS), pdTRUE, &sensors_,
-					 [](const TimerHandle_t p_timerHandle)
-					 {
-						 esp_rom_printf("Periodic Water Temperature read timer\n");
+	passiveSensorTimers_[sensor] = xTimerCreate(
+		"Periodic Water Temperature read timer", pdMS_TO_TICKS(WATER_TEMP_READ_INTERVAL_MS), pdTRUE, &sensors_,
+		[](const TimerHandle_t p_timerHandle)
+		{
+			/*
+			 *	Get the sensors vector
+			 */
+			const auto sensors = static_cast<std::vector<Sensor*>*>(pvTimerGetTimerID(p_timerHandle));
 
-						 /*
-						  *	Get the sensors vector
-						  */
-						 const auto sensors = static_cast<std::vector<Sensor*>*>(pvTimerGetTimerID(p_timerHandle));
+			/*
+			 *	Cast the sensor
+			 */
+			const auto sensor = static_cast<PassiveSensor*>(sensors->at(2));
 
-						 /*
-						  *	Cast the sensor
-						  */
-						 const auto sensor = static_cast<PassiveSensor*>(sensors->at(2));
-
-						 /*
-						  *	Read the sensor
-						  */
-						 esp_rom_printf("sensor->read()\n");
-						 sensor->read();
-					 });
+			/*
+			 *	Read the sensor
+			 */
+			sensor->read();
+		});
+	xTimerStart(passiveSensorTimers_[sensor], 0);
 
 	/*
 	 *	Initial reading of all passive sensors
@@ -496,20 +496,21 @@ void Operation::setupSensorDataLogging()
 	/*
 	 *	Setup data logging
 	 */
-	sensorDataLoggingTimer_ = xTimerCreate("Sensor data logging timer", pdMS_TO_TICKS(SENSOR_DATA_LOGGING_INTERVAL_MS), pdTRUE, this,
-										   [](const TimerHandle_t p_timerHandle)
-										   {
-											   /*
-												*	Get the state instance
-												*/
-											   const auto state =
-												   static_cast<Operation*>(pvTimerGetTimerID(p_timerHandle));
+	sensorDataLoggingTimer_ =
+		xTimerCreate("Sensor data logging timer", pdMS_TO_TICKS(SENSOR_DATA_LOGGING_INTERVAL_MS), pdTRUE, this,
+					 [](const TimerHandle_t p_timerHandle)
+					 {
+						 /*
+						  *	Get the state instance
+						  */
+						 const auto state = static_cast<Operation*>(pvTimerGetTimerID(p_timerHandle));
 
-											   /*
-												*	Trigger the logging function
-												*/
-											   state->logSensorData();
-										   });
+						 /*
+						  *	Trigger the logging function
+						  */
+						 state->logSensorData();
+					 });
+	xTimerStart(sensorDataLoggingTimer_, 0);
 
 	/*
 	 *	Initialize the header in the .csv file
@@ -571,7 +572,7 @@ void Operation::setupWifi() const
 		sysCon_->wifi = new WifiHost(sysCon_);
 
 		// Initialize Wifi
-		sysCon_->wifi->setSSID((*json)["WifiHost"]["ssid"]);
+		sysCon_->wifi->setSsid((*json)["WifiHost"]["ssid"]);
 		sysCon_->wifi->setPassword((*json)["WifiHost"]["password"]);
 	}
 
@@ -583,7 +584,7 @@ void Operation::setupWifi() const
 		sysCon_->wifi = new WifiJoin(sysCon_);
 
 		// Initialize Wifi
-		sysCon_->wifi->setSSID((*json)["WifiJoin"]["ssid"]);
+		sysCon_->wifi->setSsid((*json)["WifiJoin"]["ssid"]);
 		sysCon_->wifi->setPassword((*json)["WifiJoin"]["password"]);
 	}
 
@@ -693,7 +694,7 @@ void Operation::connectDisplaysToWifi() const
 	/*
 	 *	Split the SSID into transferable packages
 	 */
-	const auto& ssid = sysCon_->wifi->getSSID();
+	const auto& ssid = sysCon_->wifi->getSsid();
 	std::vector<std::vector<char>> allSsidPackages;
 	std::vector<char> ssidPackage;
 

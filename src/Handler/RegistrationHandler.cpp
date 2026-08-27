@@ -1,9 +1,9 @@
 #include "Handler/RegistrationHandler.hpp"
 
 // Project includes
-#include "Events.hpp"
 #include "CanGroupsAndFunctions.hpp"
 #include "Driver/Display.hpp"
+#include "Events.hpp"
 
 // espidf includes
 #include "esp_event.h"
@@ -49,8 +49,7 @@ RegistrationHandler::RegistrationHandler(SystemContext* p_sysCon)
 			/*
 			 *	Handle it if its a registration attempt
 			 */
-			if (frame->group != CanFrameGroups::GROUP::CONFIGURATION ||
-				frame->function != CanFrameGroups::CONFIGURATION::REGISTER_AT_MASTER) {
+			if (frame->group != CanFrameGroups::GROUP::CONFIGURATION) {
 				return;
 			}
 
@@ -65,62 +64,81 @@ RegistrationHandler::RegistrationHandler(SystemContext* p_sysCon)
 void RegistrationHandler::handleRegistration(const Can::Frame* p_frame) const
 {
 	/*
-	 *	Get the correct display instance
+	 *	Act depending on the function
 	 */
-	bool displayCrashed = true;
-	Display* display = nullptr;
-	for (const auto& d : sysCon_->displays) {
-		displayCrashed &= d->hasBeenConfigured();
+	switch (p_frame->function) {
+		case CanFrameGroups::CONFIGURATION::REGISTER_AT_MASTER:
+		{
+			// Check payload size
+			if (p_frame->dataLengthCode != 3) {
+				return;
+			}
 
-		if (d->getCanId() != p_frame->sender && p_frame->sender != 0 && d->hasBeenConfigured()) {
-			continue;
-		}
+			/*
+			 *	Get the correct display
+			 */
+			Display* display = nullptr;
 
-		display = d;
+			// Iterate through all display instances
+			for (const auto& d : sysCon_->displays) {
+				// Skip it if its not the one the message came from and it has been configured already
+				if (d->getCanId() != p_frame->data[0] && d->hasBeenConfigured()) {
+					continue;
+				}
+
+				display = d;
+				break;
+			}
+
+			// If its a nullptr we didnt find the instance
+			if (display == nullptr) {
+				return;
+			}
+
+			/*
+			 *	Reset the display instance
+			 */
+			display->reset();
+
+			/*
+			 *	Bake the configuration if needed
+			 */
+			const auto data = p_frame->data;
+			if (data[0] != display->getCanId() || data[1] != display->getScreen() || data[2] != display->isRotated())
+			{
+				display->bakeConfiguration();
+			} else {
+				display->confirmConfiguration();
+			}
+
+			/*
+			 *	Turn it on if it crashed
+			 */
+			bool crashed = true;
+
+			// If all other are marked as configured, it probably crashed
+			for (const auto& d : sysCon_->displays) {
+				crashed &= d->hasBeenConfigured();
+			}
+
+			if (crashed) {
+				wakeUpAllDisplays();
+			}
+
+			/*
+			 *	Mark the display as configured
+			 */
+			display->setConfigured(true);
+
+			/*
+			 *	Add event to the event loop
+			 */
+			esp_event_post(SYSTEM_EVENT_BASE, DISPLAY_REGISTERED, display, sizeof(*display), portMAX_DELAY);
+
+		} break;
+
+		default: break;
 	}
-
-	if (display == nullptr) {
-		return;
-	}
-
-	/*
-	 *	Reset the display instance
-	 */
-	display->reset();
-
-	/*
-	 *	Set the ID if necessary
-	 */
-	if (p_frame->sender == 0)
-	{
-		ESP_LOGI(TAG, "ID was 0, setting new ID: %d", display->getCanId());
-		display->applyId();
-	}
-
-	/*
-	 *	Set the screen and rotation
-	 */
-	const bool correctScreen = p_frame->data[0] == display->getScreen();
-	const bool correctRotation = static_cast<bool>(p_frame->data[1]) == display->isRotated();
-
-	// Apply the correct screen & rotation if necessary
-	if (!correctScreen || !correctRotation) {
-		display->applyScreen();
-		display->applyRotation();
-	}
-
-	// Confirm the configuration
-	display->confirmConfiguration();
-
-	// Turn it on if necessary
-	if (displayCrashed) {
-		wakeUpAllDisplays();
-	}
-
-	/*
-	 *	Add event to the event loop
-	 */
-	esp_event_post(SYSTEM_EVENT_BASE, DISPLAY_REGISTERED, display, sizeof(*display), portMAX_DELAY);
 }
 
 void RegistrationHandler::wakeUpAllDisplays() const

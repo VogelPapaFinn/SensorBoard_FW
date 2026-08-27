@@ -48,56 +48,24 @@ uint8_t Display::getCanId() const
 	return canId_;
 }
 
-void Display::applyId() const
+void Display::bakeConfiguration() const
 {
+	// Build basic CAN frame
 	Can::Frame frame;
 	frame.sender = CAN_MASTER_ID;
 	frame.target = canId_;
 	frame.group = CanFrameGroups::GROUP::CONFIGURATION;
-	frame.function = CanFrameGroups::CONFIGURATION::SET_ID;
-	frame.dataLengthCode = 1;
-	frame.data[0] = canId_;
+	frame.function = CanFrameGroups::CONFIGURATION::BAKE_CONFIGURATION;
+	frame.dataLengthCode = 3;
 	frame.answer = false;
 
+	// Add data
+	frame.data[0] = canId_;
+	frame.data[1] = screen_;
+	frame.data[2] = rotated_;
+
+	// Queue it
 	sysCon_->can->queueFrame(frame);
-}
-
-void Display::applyScreen() const
-{
-	Can::Frame txFrame;
-	txFrame.sender = CAN_MASTER_ID;
-	txFrame.target = canId_;
-	txFrame.group = CanFrameGroups::GROUP::CONFIGURATION;
-	txFrame.function = CanFrameGroups::CONFIGURATION::SET_SCREEN;
-	txFrame.dataLengthCode = 1;
-	txFrame.data[0] = screen_;
-	txFrame.answer = false;
-
-	sysCon_->can->queueFrame(txFrame);
-}
-
-uint8_t Display::getScreen() const
-{
-	return screen_;
-}
-
-void Display::applyRotation() const
-{
-	Can::Frame txFrame;
-	txFrame.sender = CAN_MASTER_ID;
-	txFrame.target = canId_;
-	txFrame.group = CanFrameGroups::GROUP::CONFIGURATION;
-	txFrame.function = CanFrameGroups::CONFIGURATION::SET_ROTATION;
-	txFrame.dataLengthCode = 1;
-	txFrame.data[0] = rotated_;
-	txFrame.answer = false;
-
-	sysCon_->can->queueFrame(txFrame);
-}
-
-bool Display::isRotated() const
-{
-	return rotated_;
 }
 
 void Display::confirmConfiguration()
@@ -112,6 +80,16 @@ void Display::confirmConfiguration()
 	txFrame.answer = false;
 
 	sysCon_->can->queueFrame(txFrame);
+}
+
+uint8_t Display::getScreen() const
+{
+	return screen_;
+}
+
+bool Display::isRotated() const
+{
+	return rotated_;
 }
 
 void Display::turnOn() const
@@ -131,3 +109,9 @@ void Display::turnOff() const
 
 	gpio_set_level(powerGpio_, 0);
 }
+
+void Display::setConfigured(bool configured)
+{
+	configured_ = configured;
+}
+

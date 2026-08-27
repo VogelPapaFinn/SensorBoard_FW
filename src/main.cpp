@@ -20,11 +20,11 @@ constexpr gpio_num_t GPIO_CAN_RX = GPIO_NUM_41;
 //! \brief GPIO pin number for CAN transmitter.
 constexpr gpio_num_t GPIO_CAN_TX = GPIO_NUM_40;
 
-//! \brief Default configuration file name.
-constexpr auto DEFAULT_CONFIG_NAME = "default/config.json";
-
 //! \brief Configuration file name.
 constexpr auto CONFIG_NAME = "config.json";
+
+//! \brief Default configuration file name.
+constexpr auto DEFAULT_CONFIG_NAME = "default/config.json";
 
 constexpr adc_oneshot_unit_init_cfg_t ADC1_UNIT_CONFIG = {.unit_id = ADC_UNIT_1, .ulp_mode = ADC_ULP_MODE_DISABLE};
 

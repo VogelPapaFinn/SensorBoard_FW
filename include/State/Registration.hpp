@@ -26,7 +26,5 @@ private:
 	/*
 	 *	Private Variables
 	 */
-	SystemContext* sysCon_ = nullptr;
-
 	uint8_t currDisplay = 0;
 };

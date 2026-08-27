@@ -17,7 +17,7 @@ constexpr unsigned int ADC_SAMPLE_COUNT = 10;
 /*
  *	Public Function Implementations
  */
-PassiveSensor::PassiveSensor(gpio_num_t gpio, adc_channel_t adcChannel, adc_oneshot_unit_handle_t* p_adc,
+PassiveSensor::PassiveSensor(gpio_num_t gpio, adc_channel_t adcChannel, adc_oneshot_unit_handle_t p_adc,
 							 adc_unit_t unit)
 {
 	gpio_ = gpio;
@@ -26,7 +26,7 @@ PassiveSensor::PassiveSensor(gpio_num_t gpio, adc_channel_t adcChannel, adc_ones
 	unit_ = unit;
 
 	// Configure the channel
-	if (adc_oneshot_config_channel(*adc_, channel_, &channelConfig_) != ESP_OK) {
+	if (adc_oneshot_config_channel(adc_, channel_, &channelConfig_) != ESP_OK) {
 		ESP_LOGW(TAG, "Couldn't set adc config for channel %d", channel_);
 		return;
 	}
@@ -62,7 +62,7 @@ void PassiveSensor::read()
 	// Take a sample amount
 	for (unsigned int i = 0; i < ADC_SAMPLE_COUNT; i++) {
 		// Read from the adc
-		if (adc_oneshot_read(*adc_, channel_, &value) == ESP_OK) {
+		if (adc_oneshot_read(adc_, channel_, &value) == ESP_OK) {
 			successfullReads++;
 			valueSum += value;
 			continue;
@@ -89,16 +89,16 @@ void PassiveSensor::read()
 	}
 
 	/*
-	 *	Call the sensor specific read logic
-	 */
-	specificRead();
-
-	/*
 	 *	Add an event to the loop if the value changed
 	 */
 	if (lastVoltage_ == voltage_) {
 		return;
 	}
+
+	/*
+	 *	Call the sensor specific read logic
+	 */
+	specificRead();
 
 	lastVoltage_ = voltage_;
 	notifyAboutNewValue();
